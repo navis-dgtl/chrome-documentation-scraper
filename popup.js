@@ -130,30 +130,53 @@ document.addEventListener('DOMContentLoaded', () => {
           excludePattern: excludePatternInput.value.trim()
         };
         
-        // Send message to content script to collect links
-        chrome.tabs.sendMessage(
-          currentTab.id,
-          { action: 'collectLinks', options },
-          (response) => {
-            if (response && response.links) {
-              collectedUrls = response.links;
+      // Ensure content script is injected before sending message
+      try {
+        chrome.scripting.executeScript({
+          target: { tabId: currentTab.id },
+          files: ['js/content.js']
+        }).then(() => {
+          // Content script is now injected, send message
+          updateStatus('Content script injected, collecting links...');
+          
+          // Send message to content script to collect links
+          chrome.tabs.sendMessage(
+            currentTab.id,
+            { action: 'collectLinks', options },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.error('Runtime error:', chrome.runtime.lastError);
+                updateStatus('Error: ' + chrome.runtime.lastError.message);
+                return;
+              }
               
-              // Store URLs in background script
-              chrome.runtime.sendMessage({
-                action: 'setUrls',
-                urls: collectedUrls
-              });
-              
-              showProgressBar(100);
-              updateStatus(`Collected ${collectedUrls.length} links from the page`);
-              
-              // Enable extract button
-              extractContentButton.disabled = false;
-            } else {
-              updateStatus('Error: Could not collect links from the page');
+              if (response && response.links) {
+                collectedUrls = response.links;
+                
+                // Store URLs in background script
+                chrome.runtime.sendMessage({
+                  action: 'setUrls',
+                  urls: collectedUrls
+                });
+                
+                showProgressBar(100);
+                updateStatus(`Collected ${collectedUrls.length} links from the page`);
+                
+                // Enable extract button
+                extractContentButton.disabled = false;
+              } else {
+                updateStatus('Error: Could not collect links from the page');
+              }
             }
-          }
-        );
+          );
+        }).catch(error => {
+          console.error('Error injecting content script:', error);
+          updateStatus('Error injecting content script: ' + error.message);
+        });
+      } catch (error) {
+        console.error('Error sending message:', error);
+        updateStatus('Error: ' + error.message);
+      }
       });
     } else {
       // Use manually entered URLs
@@ -259,9 +282,15 @@ document.addEventListener('DOMContentLoaded', () => {
           // Remove the listener once the page is loaded
           chrome.tabs.onUpdated.removeListener(tabUpdateListener);
           
-          // Small additional delay to ensure scripts are initialized
-          setTimeout(() => {
-            // Extract content from the page
+          // Inject content script before sending message
+          chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['js/content.js']
+          }).then(() => {
+            // Content script injected, now extract content
+            updateStatus(`Processing ${index + 1}/${collectedUrls.length}: ${getUrlDomain(currentUrl)}`);
+            
+            // Send message to extract content
             chrome.tabs.sendMessage(
               tab.id,
               { 

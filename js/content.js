@@ -370,14 +370,26 @@ function collectLinks(options = {}) {
 
 // Listen for messages from popup or background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extractContent') {
-    const result = extractContent(request.options);
-    sendResponse(result);
-  } else if (request.action === 'collectLinks') {
-    const links = collectLinks(request.options);
-    sendResponse({ links });
+  console.log('Content script received message:', request.action);
+  
+  try {
+    if (request.action === 'extractContent') {
+      const result = extractContent(request.options);
+      console.log('Extracted content:', result ? 'Success' : 'Failed');
+      sendResponse(result);
+    } else if (request.action === 'collectLinks') {
+      const links = collectLinks(request.options);
+      console.log('Collected links:', links.length);
+      sendResponse({ links });
+    }
+  } catch (error) {
+    console.error('Error in content script:', error);
+    sendResponse({ error: error.message });
   }
   
   // Return true to indicate async response
   return true;
 });
+
+// Log that content script is loaded
+console.log('Navis.ai Knowledge Builder content script loaded at', new Date().toISOString());
