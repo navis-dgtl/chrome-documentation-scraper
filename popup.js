@@ -1,4 +1,4 @@
-// Improved popup.js with icon support
+// Improved popup.js with icon support and extraction control
 
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
@@ -20,16 +20,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
   
+  // Extraction control elements
+  const extractionControls = document.getElementById('extraction-controls');
+  const pauseExtractionButton = document.getElementById('pause-extraction');
+  const resumeExtractionButton = document.getElementById('resume-extraction');
+  const stopExtractionButton = document.getElementById('stop-extraction');
+  
   // Section headers for collapsible sections
   const sectionHeaders = document.querySelectorAll('.section-header');
   
   // State
   let collectedUrls = [];
   let processedPages = [];
+  let currentUrlIndex = 0;
+  let extractionPaused = false;
+  let extractionActive = false;
+  let extractionOptions = {};
   
   // Initialize UI and collapsible sections
   initializeUI();
   setupCollapsibleSections();
+  setupExtractionControlListeners();
   
   /**
    * Initialize collapsible sections
@@ -62,6 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     });
+  }
+  
+  /**
+   * Setup event listeners for extraction control buttons
+   */
+  function setupExtractionControlListeners() {
+    pauseExtractionButton.addEventListener('click', handlePauseExtraction);
+    resumeExtractionButton.addEventListener('click', handleResumeExtraction);
+    stopExtractionButton.addEventListener('click', handleStopExtraction);
   }
   
   // Event Listeners
@@ -217,17 +237,28 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    // Reset processed pages
-    processedPages = [];
-    chrome.runtime.sendMessage({ action: 'resetState' });
-    
-    // Get content options
-    const options = {
-      includeHeadings: includeHeadingsCheckbox.checked,
-      includeImages: includeImagesCheckbox.checked,
-      includeLinks: includeLinksCheckbox.checked,
-      includeCodeBlocks: includeCodeBlocksCheckbox.checked
-    };
+    // Reset processed pages if starting fresh
+    if (!extractionActive) {
+      processedPages = [];
+      chrome.runtime.sendMessage({ action: 'resetState' });
+      
+      // Get content options and store them for pause/resume functionality
+      extractionOptions = {
+        includeHeadings: includeHeadingsCheckbox.checked,
+        includeImages: includeImagesCheckbox.checked,
+        includeLinks: includeLinksCheckbox.checked,
+        includeCodeBlocks: includeCodeBlocksCheckbox.checked
+      };
+      
+      currentUrlIndex = 0;
+      extractionActive = true;
+      extractionPaused = false;
+      
+      // Show extraction controls
+      extractionControls.classList.remove('hidden');
+      pauseExtractionButton.classList.remove('hidden');
+      resumeExtractionButton.classList.add('hidden');
+    }
     
     updateStatus(`Starting extraction of ${collectedUrls.length} pages...`);
     showProgressBar(0);
@@ -239,22 +270,92 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Process URLs sequentially
-    processNextUrl(0, options);
+    processNextUrl(currentUrlIndex, extractionOptions);
   }
   
   /**
-   * Process URLs one by one
-   * @param {number} index - Current URL index
+   * Handle pause extraction button click
+   */
+  function handlePauseExtraction() {
+    if (extractionActive && !extractionPaused) {
+      extractionPaused = true;
+      updateStatus(`Extraction paused at ${currentUrlIndex}/${collectedUrls.length} URLs`);
+      
+      // Update UI
+      pauseExtractionButton.classList.add('hidden');
+      resumeExtractionButton.classList.remove('hidden');
+    }
+  }
+  
+  /**
+   * Handle resume extraction button click
+   */
+  function handleResumeExtraction() {
+    if (extractionActive && extractionPaused) {
+      extractionPaused = false;
+      updateStatus(`Resuming extraction from ${currentUrlIndex}/${collectedUrls.length} URLs`);
+      
+      // Update UI
+      pauseExtractionButton.classList.remove('hidden');
+      resumeExtractionButton.classList.add('hidden');
+      
+      // Continue processing from where we left off
+      processNextUrl(currentUrlIndex, extractionOptions);
+    }
+  }
+  
+  /**
+   * Handle stop extraction button click
+   */
+  function handleStopExtraction() {
+    if (extractionActive) {
+      extractionActive = false;
+      extractionPaused = false;
+      
+      updateStatus(`Stopped extraction at ${currentUrlIndex}/${collectedUrls.length} URLs. ${processedPages.length} pages processed.`);
+      
+      // Hide extraction controls
+      extractionControls.classList.add('hidden');
+      
+      // Enable download button if we have any processed pages
+      if (processedPages.length > 0) {
+        downloadZipButton.disabled = false;
+      }
+      
+      // Update status in background script
+      chrome.runtime.sendMessage({
+        action: 'updateStatus',
+        status: 'stopped'
+      });
+    }
+  }
+  
+  // Sequential processing of URLs
+  let isProcessing = false;
+
+  /**
+   * Process URLs strictly one at a time
+   * @param {number} startIndex - Starting URL index (only used when first called)
    * @param {Object} options - Content extraction options
    */
-  function processNextUrl(index, options) {
-    if (index >= collectedUrls.length) {
+  function processNextUrl(startIndex, options) {
+    // If already processing, don't start another process
+    if (isProcessing) {
+      return;
+    }
+
+    // Handle extraction completion
+    if (startIndex >= collectedUrls.length) {
       // All URLs processed
       updateStatus(`Completed processing ${processedPages.length} pages`);
       showProgressBar(100);
       
       // Enable download button
       downloadZipButton.disabled = false;
+      
+      // Hide extraction controls
+      extractionControls.classList.add('hidden');
+      extractionActive = false;
       
       // Update status in background script
       chrome.runtime.sendMessage({
@@ -265,121 +366,128 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    const currentUrl = collectedUrls[index].url;
-    const progress = Math.round((index / collectedUrls.length) * 100);
+    // If extraction is paused, don't process
+    if (extractionPaused) {
+      return;
+    }
+
+    // Set processing flag to prevent concurrent processing
+    isProcessing = true;
     
-    updateStatus(`Processing ${index + 1}/${collectedUrls.length}: ${getUrlDomain(currentUrl)}`);
+    // Update current index for pause/resume functionality
+    currentUrlIndex = startIndex;
+    
+    const currentUrl = collectedUrls[startIndex].url;
+    
+    // Only update the progress when actually starting to process a URL
+    // Calculate progress based on completed URLs, not the index we're about to process
+    const progress = Math.round((startIndex / collectedUrls.length) * 100);
+    
+    updateStatus(`Processing ${startIndex + 1}/${collectedUrls.length}: ${getUrlDomain(currentUrl)}`);
     showProgressBar(progress);
     
-    // Open URL in a new tab
-    chrome.tabs.create({ url: currentUrl, active: false }, (tab) => {
-      // Wait for page to load with an increasing timeout
-      const loadTimeout = 3000; // 3 seconds base loading time
-      
-      // Listen for tab updates to ensure the page is fully loaded
-      const tabUpdateListener = (tabId, changeInfo) => {
-        if (tabId === tab.id && changeInfo.status === 'complete') {
-          // Remove the listener once the page is loaded
-          chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-          
-          // Inject content script before sending message
-          chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['js/content.js']
-          }).then(() => {
-            // Content script injected, now extract content
-            updateStatus(`Processing ${index + 1}/${collectedUrls.length}: ${getUrlDomain(currentUrl)}`);
-            
-            // Send message to extract content
-            chrome.tabs.sendMessage(
-              tab.id,
-              { 
-                action: 'extractContent', 
-                options: {
-                  ...options,
-                  baseUrl: currentUrl // Pass the current URL as baseUrl
-                }
-              },
-              (response) => {
-                if (chrome.runtime.lastError) {
-                  console.error('Error communicating with content script:', chrome.runtime.lastError);
-                  
-                  // Close the tab and continue
-                  chrome.tabs.remove(tab.id, () => {
-                    processNextUrl(index + 1, options);
-                  });
-                  return;
-                }
-                
-                if (response && response.markdown) {
-                  // Add to processed pages
-                  processedPages.push({
-                    url: currentUrl,
-                    title: response.metadata.title,
-                    markdown: response.markdown,
-                    metadata: response.metadata
-                  });
-                  
-                  // Store in background script
-                  chrome.runtime.sendMessage({
-                    action: 'addPage',
-                    pageData: {
-                      url: currentUrl,
-                      title: response.metadata.title,
-                      markdown: response.markdown,
-                      metadata: response.metadata
-                    }
-                  });
-                  
-                  // Close the tab
-                  chrome.tabs.remove(tab.id, () => {
-                    // Process next URL
-                    processNextUrl(index + 1, options);
-                  });
-                } else {
-                  console.error('Error extracting content from', currentUrl);
-                  
-                  // Close the tab and continue
-                  chrome.tabs.remove(tab.id, () => {
-                    processNextUrl(index + 1, options);
-                  });
-                }
-              }
-            );
-          }, 500); // Short delay after page load complete
+    try {
+      // Open URL in a new tab
+      chrome.tabs.create({ url: currentUrl, active: false }, (tab) => {
+        if (!tab || !tab.id) {
+          console.error('Failed to create tab');
+          finishProcessingUrl(startIndex, null, options);
+          return;
         }
-      };
-      
-      // Add the listener for tab updates
-      chrome.tabs.onUpdated.addListener(tabUpdateListener);
-      
-      // Failsafe timeout in case the tab never fully loads
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(tabUpdateListener);
         
-        // Try extraction anyway or skip to next URL
+        const tabId = tab.id;
+        let tabProcessed = false;
+        let tabUpdateListenerRemoved = false;
+        
+        // Listen for tab updates to ensure the page is fully loaded
+        const tabUpdateListener = (updatedTabId, changeInfo) => {
+          if (updatedTabId === tabId && changeInfo.status === 'complete' && !tabProcessed) {
+            // Set flag to prevent multiple processing of the same tab
+            tabProcessed = true;
+            
+            // Prevent multiple executions on the same tab
+            if (tabUpdateListenerRemoved) return;
+            
+            tabUpdateListenerRemoved = true;
+            chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+            
+            // Process the tab content
+            processTabContent(tabId, currentUrl, startIndex, options);
+          }
+        };
+        
+        // Add the listener for tab updates
+        chrome.tabs.onUpdated.addListener(tabUpdateListener);
+        
+        // Failsafe timeout in case the tab never fully loads
+        setTimeout(() => {
+          if (tabProcessed) return;
+          
+          // If not already removed
+          if (!tabUpdateListenerRemoved) {
+            tabUpdateListenerRemoved = true;
+            chrome.tabs.onUpdated.removeListener(tabUpdateListener);
+          }
+          
+          console.log(`Tab load timeout for ${currentUrl}, trying to process anyway`);
+          tabProcessed = true;
+          
+          // Try to process anyway or skip
+          processTabContent(tabId, currentUrl, startIndex, options);
+        }, 8000); // 8 second timeout
+      });
+    } catch (error) {
+      console.error('Error creating tab:', error);
+      finishProcessingUrl(startIndex, null, options);
+    }
+  }
+  
+  /**
+   * Process the content of a tab
+   * @param {number} tabId - Tab ID
+   * @param {string} url - URL being processed
+   * @param {number} index - Current URL index
+   * @param {Object} options - Extraction options
+   */
+  function processTabContent(tabId, url, index, options) {
+    try {
+      // Inject content script
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['js/content.js']
+      }).then(() => {
+        // Extract content
         chrome.tabs.sendMessage(
-          tab.id,
+          tabId,
           { 
             action: 'extractContent', 
             options: {
               ...options,
-              baseUrl: currentUrl
+              baseUrl: url
             }
           },
           (response) => {
+            const lastError = chrome.runtime.lastError;
+            if (lastError) {
+              console.error('Error communicating with content script:', lastError);
+              finishProcessingUrl(index, tabId, options);
+              return;
+            }
+            
             if (response && response.markdown) {
+              // Add to processed pages
               processedPages.push({
-                url: currentUrl,
+                url: url,
                 title: response.metadata.title,
                 markdown: response.markdown,
                 metadata: response.metadata
               });
               
+              // Store in background script
               chrome.runtime.sendMessage({
                 action: 'addPage',
                 pageData: {
-                  url: currentUrl,
+                  url: url,
                   title: response.metadata.title,
                   markdown: response.markdown,
                   metadata: response.metadata
@@ -387,14 +495,92 @@ document.addEventListener('DOMContentLoaded', () => {
               });
             }
             
-            // Close the tab and continue
-            chrome.tabs.remove(tab.id, () => {
-              processNextUrl(index + 1, options);
-            });
+            finishProcessingUrl(index, tabId, options);
           }
         );
-      }, loadTimeout + 5000); // Failsafe timeout after normal loading time
-    });
+      }).catch(error => {
+        console.error('Error injecting content script:', error);
+        finishProcessingUrl(index, tabId, options);
+      });
+    } catch (error) {
+      console.error('Error processing tab content:', error);
+      finishProcessingUrl(index, tabId, options);
+    }
+  }
+  
+  /**
+   * Finish processing the current URL and move to the next
+   * @param {number} currentIndex - Current URL index
+   * @param {number|null} tabId - Tab ID to close, or null if already closed
+   * @param {Object} options - Extraction options
+   */
+  function finishProcessingUrl(currentIndex, tabId, options) {
+    try {
+      // Only try to close the tab if we have a valid ID
+      if (tabId !== null) {
+        try {
+          chrome.tabs.get(tabId, (tab) => {
+            if (chrome.runtime.lastError) {
+              // Tab doesn't exist, just continue
+              console.log('Tab already closed:', chrome.runtime.lastError.message);
+              continueToNextUrl(currentIndex, options);
+            } else if (tab) {
+              // Tab exists, try to close it
+              chrome.tabs.remove(tabId, () => {
+                if (chrome.runtime.lastError) {
+                  console.log('Error closing tab:', chrome.runtime.lastError.message);
+                }
+                continueToNextUrl(currentIndex, options);
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Error checking tab:', error);
+          continueToNextUrl(currentIndex, options);
+        }
+      } else {
+        continueToNextUrl(currentIndex, options);
+      }
+    } catch (error) {
+      console.error('Error in finishProcessingUrl:', error);
+      isProcessing = false;
+      
+      // Make sure we continue to the next URL even if there's an error
+      continueToNextUrl(currentIndex, options);
+    }
+  }
+  
+  /**
+   * Continue to the next URL in the sequence
+   * @param {number} currentIndex - Current URL index
+   * @param {Object} options - Extraction options
+   */
+  function continueToNextUrl(currentIndex, options) {
+    // Update progress after processing is complete
+    const nextIndex = currentIndex + 1;
+    const progress = Math.round((nextIndex / collectedUrls.length) * 100);
+    
+    // Make sure progress doesn't exceed 100%
+    if (progress <= 100) {
+      showProgressBar(progress);
+    }
+    
+    // Update the status text to show we've completed processing this URL
+    if (nextIndex < collectedUrls.length) {
+      updateStatus(`Completed ${nextIndex}/${collectedUrls.length} pages`);
+    }
+    
+    // Reset processing flag to allow next URL
+    isProcessing = false;
+    
+    // If not paused and still active, process the next URL
+    if (!extractionPaused && extractionActive) {
+      // Use setTimeout to ensure we're not in the same call stack
+      // This prevents multiple concurrent tab opening
+      setTimeout(() => {
+        processNextUrl(nextIndex, options);
+      }, 500);
+    }
   }
   
   /**

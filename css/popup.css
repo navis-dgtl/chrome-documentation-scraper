@@ -321,10 +321,57 @@
     font-size: 14px;
     text-align: center;
     color: var(--text-color);
+    margin-bottom: 12px;
   }
   
   .hidden {
     display: none;
+  }
+  
+  /* Extraction control buttons */
+  .control-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  
+  .control-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-color: var(--secondary-color);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  
+  .control-button:hover {
+    background-color: #e9ecef;
+    transform: translateY(-1px);
+  }
+  
+  .control-button svg {
+    color: var(--primary-color);
+  }
+  
+  #pause-extraction:hover, #resume-extraction:hover {
+    background-color: var(--primary-color);
+  }
+  
+  #pause-extraction:hover svg, #resume-extraction:hover svg {
+    color: white;
+  }
+  
+  #stop-extraction:hover {
+    background-color: var(--error-color);
+  }
+  
+  #stop-extraction:hover svg {
+    color: white;
   }
   
   /* Footer section with credits */
