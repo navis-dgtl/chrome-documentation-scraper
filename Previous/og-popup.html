@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Knowledge Base Extractor</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/popup.css">
+  <!-- Include JSZip library -->
+  <script src="js/lib/jszip.min.js"></script>
+  <!-- Include markdown utilities -->
+  <script src="js/markdown-utils.js"></script>
+  <!-- Include JSZip integration -->
+  <script src="js/jszip-integration.js"></script>
+  <!-- Material Icons (Google Font Icons) -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>AI Knowledge Base Extractor</h1>
+    </header>
+    
+    <div class="section">
+      <h2>URL Collection</h2>
+      <div class="option-group">
+        <label>
+          <input type="radio" name="url-collection" value="all" checked> 
+          <span>Collect all links on page</span>
+        </label>
+        <label>
+          <input type="radio" name="url-collection" value="selected"> 
+          <span>Specify URLs manually</span>
+        </label>
+      </div>
+      
+      <div id="manual-urls-container" class="hidden">
+        <textarea id="manual-urls" placeholder="Enter URLs (one per line)"></textarea>
+      </div>
+      
+      <div id="url-filters" class="filter-section">
+        <h3>URL Filters</h3>
+        <div class="input-group">
+          <label for="include-pattern">Include pattern:</label>
+          <input type="text" id="include-pattern" placeholder="e.g., /docs/">
+        </div>
+        <div class="input-group">
+          <label for="exclude-pattern">Exclude pattern:</label>
+          <input type="text" id="exclude-pattern" placeholder="e.g., /blog/">
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>Content Options</h2>
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="include-headings" checked> 
+          Include headings
+        </label>
+        <label>
+          <input type="checkbox" id="include-images" checked> 
+          Include image references
+        </label>
+        <label>
+          <input type="checkbox" id="include-links" checked> 
+          Include links
+        </label>
+        <label>
+          <input type="checkbox" id="include-code-blocks" checked> 
+          Include code blocks
+        </label>
+      </div>
+    </div>
+    
+    <div class="section">
+      <h2>Output Options</h2>
+      <div class="input-group">
+        <label for="output-filename">Output filename:</label>
+        <input type="text" id="output-filename" value="ai-knowledge-base">
+      </div>
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" id="create-index" checked> 
+          Create index file
+        </label>
+        <label>
+          <input type="checkbox" id="add-frontmatter" checked> 
+          Add YAML frontmatter
+        </label>
+        <label>
+          <input type="checkbox" id="add-table-of-contents"> 
+          Add table of contents
+        </label>
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button id="scan-page" class="primary-button">
+        <span class="material-icons">search</span>
+        <span>Scan Page</span>
+      </button>
+      <button id="extract-content" class="primary-button" disabled>
+        <span class="material-icons">content_copy</span>
+        <span>Extract</span>
+      </button>
+      <button id="download-zip" class="primary-button" disabled>
+        <span class="material-icons">download</span>
+        <span>Download</span>
+      </button>
+    </div>
+    
+    <div id="status" class="status-section hidden">
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="status-text">Ready</p>
+    </div>
+  </div>
+  
+  <script src="js/popup.js"></script>
+</body>
+</html>

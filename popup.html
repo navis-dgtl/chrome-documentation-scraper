@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Navis.ai | Knowledge Builder</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="./css/popup.css">
+  <!-- Include JSZip library -->
+  <script src="js/lib/jszip.min.js"></script>
+  <!-- Include markdown utilities -->
+  <script src="js/markdown-utils.js"></script>
+  <!-- Include JSZip integration -->
+  <script src="js/jszip-integration.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header with logo and title -->
+    <div class="header">
+      <img src="images/icon48.png" alt="Logo" class="logo">
+      <h1>Navis.ai | Knowledge Builder</h1>
+    </div>
+    
+    <!-- URL Collection Section -->
+    <div class="section" id="url-collection-section">
+      <div class="section-header">
+        <h2>
+          <!-- List icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a6cf7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+          URL Collection
+        </h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      
+      <div class="section-content">
+        <div class="option-group">
+          <label class="radio-item">
+            <input type="radio" name="url-collection" value="all" checked> 
+            Collect all links on page
+          </label>
+          <label class="radio-item">
+            <input type="radio" name="url-collection" value="selected"> 
+            Specify URLs manually
+          </label>
+        </div>
+        
+        <div id="manual-urls-container" class="hidden">
+          <textarea id="manual-urls" placeholder="Enter URLs (one per line)"></textarea>
+        </div>
+        
+        <div id="url-filters" class="filter-section">
+          <h3>URL Filters</h3>
+          <div class="input-group">
+            <label for="include-pattern">
+              Include pattern:
+              <div class="tooltip">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span class="tooltip-text">Only URLs containing this pattern will be included (e.g., /docs/)</span>
+              </div>
+            </label>
+            <input type="text" id="include-pattern" placeholder="e.g., /docs/">
+          </div>
+          <div class="input-group">
+            <label for="exclude-pattern">
+              Exclude pattern:
+              <div class="tooltip">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span class="tooltip-text">URLs containing this pattern will be excluded (e.g., /blog/)</span>
+              </div>
+            </label>
+            <input type="text" id="exclude-pattern" placeholder="e.g., /blog/">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Content Options Section -->
+    <div class="section" id="content-options-section">
+      <div class="section-header">
+        <h2>
+          <!-- Settings icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a6cf7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Content Options
+        </h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      
+      <div class="section-content">
+        <div class="checkbox-group">
+          <label class="checkbox-item">
+            <input type="checkbox" id="include-headings" checked> 
+            Include headings
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="include-images" checked> 
+            Include image references
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="include-links" checked> 
+            Include links
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="include-code-blocks" checked> 
+            Include code blocks
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Output Options Section -->
+    <div class="section" id="output-options-section">
+      <div class="section-header">
+        <h2>
+          <!-- Package icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a6cf7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+            <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+          Output Options
+        </h2>
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-chevron">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      
+      <div class="section-content">
+        <div class="input-group">
+          <label for="output-filename">Output filename:</label>
+          <input type="text" id="output-filename" value="ai-knowledge-base">
+        </div>
+        <div class="checkbox-group">
+          <label class="checkbox-item">
+            <input type="checkbox" id="create-index" checked> 
+            Create index file
+            <div class="tooltip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span class="tooltip-text">Creates an index.md file with links to all extracted pages</span>
+            </div>
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="add-frontmatter" checked> 
+            Add YAML frontmatter
+            <div class="tooltip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span class="tooltip-text">Adds metadata at the top of each markdown file</span>
+            </div>
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="add-table-of-contents"> 
+            Add table of contents
+            <div class="tooltip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#777" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tooltip-icon">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              <span class="tooltip-text">Generates a table of contents for each markdown file</span>
+            </div>
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div class="button-group">
+      <button id="scan-page" class="primary-button">
+        <!-- Search icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        Scan Page
+      </button>
+      <button id="extract-content" class="primary-button" disabled>
+        <!-- File text icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+          <polyline points="10 9 9 9 8 9"></polyline>
+        </svg>
+        Extract
+      </button>
+      <button id="download-zip" class="primary-button" disabled>
+        <!-- Download icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        Download
+      </button>
+    </div>
+    
+    <!-- Status Section -->
+    <div id="status" class="status-section hidden">
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="status-text">Ready</p>
+    </div>
+    
+    <!-- Footer -->
+    <div class="footer">
+      <p>Navis.ai | Knowledge Builder v1.0</p>
+    </div>
+  </div>
+  
+  <script src="js/popup.js"></script>
+</body>
+</html>
