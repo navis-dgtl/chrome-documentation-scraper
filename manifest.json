@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Navis.ai Knowledge Builder",
+  "name": "Navis.Digital Knowledge Builder",
   "version": "1.0",
   "description": "Extract web content and save as markdown files for AI knowledge bases",
   "permissions": [
