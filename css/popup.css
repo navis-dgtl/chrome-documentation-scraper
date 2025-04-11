@@ -327,6 +327,63 @@
   .hidden {
     display: none;
   }
+
+  /* URL List Styling */
+  #collected-urls-container {
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+
+  #collected-urls-container h3 {
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+
+  .url-list {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    background-color: white;
+  }
+
+  .url-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .url-item:last-child {
+    border-bottom: none;
+  }
+
+  .url-text {
+    flex: 1;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .url-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--error-color);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+  }
+
+  .url-remove:hover {
+    opacity: 1;
+  }
   
   /* Extraction control buttons */
   .control-buttons {

@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const urlCollectionRadios = document.querySelectorAll('input[name="url-collection"]');
   const manualUrlsContainer = document.getElementById('manual-urls-container');
   const manualUrlsTextarea = document.getElementById('manual-urls');
+  const collectedUrlsContainer = document.getElementById('collected-urls-container');
+  const urlListElement = document.getElementById('url-list');
   const includePatternInput = document.getElementById('include-pattern');
   const excludePatternInput = document.getElementById('exclude-pattern');
   const scanPageButton = document.getElementById('scan-page');
@@ -107,6 +109,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (collectedUrls.length > 0) {
           extractContentButton.disabled = false;
           updateStatus(`${collectedUrls.length} URLs collected and ready for extraction`);
+          
+          // Render the collected URLs list
+          renderUrlList();
         }
         
         if (processedPages.length > 0) {
@@ -115,6 +120,72 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     });
+  }
+  
+  /**
+   * Render the list of collected URLs
+   */
+  function renderUrlList() {
+    if (collectedUrls.length > 0) {
+      // Clear the current list
+      urlListElement.innerHTML = '';
+      
+      // Show the container
+      collectedUrlsContainer.classList.remove('hidden');
+      
+      // Add each URL to the list
+      collectedUrls.forEach((urlItem, index) => {
+        const urlElement = document.createElement('div');
+        urlElement.className = 'url-item';
+        
+        const urlText = document.createElement('div');
+        urlText.className = 'url-text';
+        urlText.title = urlItem.url; // Show full URL on hover
+        urlText.textContent = urlItem.text || getUrlDomain(urlItem.url);
+        
+        const removeButton = document.createElement('button');
+        removeButton.className = 'url-remove';
+        removeButton.innerHTML = '&times;'; // × symbol
+        removeButton.title = 'Remove this URL';
+        removeButton.dataset.index = index;
+        removeButton.addEventListener('click', handleRemoveUrl);
+        
+        urlElement.appendChild(urlText);
+        urlElement.appendChild(removeButton);
+        urlListElement.appendChild(urlElement);
+      });
+    } else {
+      // Hide the container if no URLs
+      collectedUrlsContainer.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * Handle removing a URL from the collection
+   * @param {Event} event - Click event
+   */
+  function handleRemoveUrl(event) {
+    const index = parseInt(event.currentTarget.dataset.index, 10);
+    
+    if (!isNaN(index) && index >= 0 && index < collectedUrls.length) {
+      // Remove the URL from the array
+      const removedUrl = collectedUrls.splice(index, 1)[0];
+      
+      // Update the UI
+      renderUrlList();
+      
+      // Update the status
+      updateStatus(`Removed "${removedUrl.text || getUrlDomain(removedUrl.url)}" from scan list`);
+      
+      // Update the background script
+      chrome.runtime.sendMessage({
+        action: 'setUrls',
+        urls: collectedUrls
+      });
+      
+      // Update extract button state
+      extractContentButton.disabled = collectedUrls.length === 0;
+    }
   }
   
   /**
@@ -184,6 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Enable extract button
                 extractContentButton.disabled = false;
+                
+                // Render the URL list
+                renderUrlList();
               } else {
                 updateStatus('Error: Could not collect links from the page');
               }
@@ -222,6 +296,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Enable extract button
         extractContentButton.disabled = false;
+        
+        // Render the URL list
+        renderUrlList();
       } else {
         updateStatus('Error: No URLs entered');
       }
