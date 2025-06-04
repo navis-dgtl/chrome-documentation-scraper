@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let extractionPaused = false;
   let extractionActive = false;
   let extractionOptions = {};
+  let resumePromptShown = false;
   
   // Initialize UI and collapsible sections
   initializeUI();
@@ -112,11 +113,11 @@ document.addEventListener('DOMContentLoaded', () => {
           extractionActive = response.extractionState.active;
           extractionPaused = response.extractionState.paused;
           currentUrlIndex = response.extractionState.currentIndex;
-          
+
           // Update UI based on extraction state
           if (extractionActive) {
             extractionControls.classList.remove('hidden');
-            
+
             if (extractionPaused) {
               pauseExtractionButton.classList.add('hidden');
               resumeExtractionButton.classList.remove('hidden');
@@ -124,10 +125,31 @@ document.addEventListener('DOMContentLoaded', () => {
               pauseExtractionButton.classList.remove('hidden');
               resumeExtractionButton.classList.add('hidden');
             }
-            
+
             // Show progress
             const progress = Math.round((currentUrlIndex / collectedUrls.length) * 100);
             showProgressBar(progress);
+
+            if (extractionPaused) {
+              updateStatus(`Paused at ${currentUrlIndex}/${collectedUrls.length} URLs`);
+            }
+
+            if (!resumePromptShown && extractionPaused && currentUrlIndex < collectedUrls.length) {
+              resumePromptShown = true;
+              if (confirm(`Resume previous extraction from URL ${currentUrlIndex + 1} of ${collectedUrls.length}?`)) {
+                handleResumeExtraction();
+              } else {
+                chrome.runtime.sendMessage({ action: 'resetState' }, () => {
+                  collectedUrls = [];
+                  processedPages = [];
+                  currentUrlIndex = 0;
+                  extractionActive = false;
+                  extractionPaused = false;
+                  renderUrlList();
+                  showProgressBar(0);
+                });
+              }
+            }
           }
         }
         
