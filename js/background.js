@@ -510,6 +510,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Add processed page data
     collectedData.pages.push(request.pageData);
     sendResponse({ success: true });
+  } else if (request.action === 'getPage') {
+    const idx = parseInt(request.index, 10);
+    if (!isNaN(idx) && idx >= 0 && idx < collectedData.pages.length) {
+      sendResponse({ page: collectedData.pages[idx] });
+    } else {
+      sendResponse({});
+    }
+  } else if (request.action === 'clearPages') {
+    collectedData.pages = [];
+    sendResponse({ success: true });
   } else if (request.action === 'updateStatus') {
     // Update processing status
     collectedData.status = request.status;

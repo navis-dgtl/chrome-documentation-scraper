@@ -254,21 +254,37 @@ document.addEventListener('DOMContentLoaded', () => {
       collectedUrls.forEach((urlItem, index) => {
         const urlElement = document.createElement('div');
         urlElement.className = 'url-item';
-        
+
         const urlText = document.createElement('div');
         urlText.className = 'url-text';
         urlText.title = urlItem.url; // Show full URL on hover
         urlText.textContent = urlItem.text || getUrlDomain(urlItem.url);
-        
+
+        const buttonContainer = document.createElement('div');
+        buttonContainer.className = 'url-buttons';
+
+        const previewed = processedPages.findIndex(p => p.url === urlItem.url);
+        if (previewed !== -1) {
+          const previewButton = document.createElement('button');
+          previewButton.className = 'url-preview';
+          previewButton.textContent = 'Preview';
+          previewButton.title = 'Preview extracted markdown';
+          previewButton.dataset.index = previewed;
+          previewButton.addEventListener('click', handlePreviewPage);
+          buttonContainer.appendChild(previewButton);
+        }
+
         const removeButton = document.createElement('button');
         removeButton.className = 'url-remove';
         removeButton.innerHTML = '&times;'; // × symbol
         removeButton.title = 'Remove this URL';
         removeButton.dataset.index = index;
         removeButton.addEventListener('click', handleRemoveUrl);
-        
+
+        buttonContainer.appendChild(removeButton);
+
         urlElement.appendChild(urlText);
-        urlElement.appendChild(removeButton);
+        urlElement.appendChild(buttonContainer);
         urlListElement.appendChild(urlElement);
       });
     } else {
@@ -308,6 +324,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+/**
+   * Handle preview button click
+   */
+  function handlePreviewPage(event) {
+    const index = parseInt(event.currentTarget.dataset.index, 10);
+    if (!isNaN(index)) {
+      const url = chrome.runtime.getURL(`viewer.html?id=${index}`);
+      chrome.tabs.create({ url });
+    }
+  }
+
   /**
    * Handle clearing all collected URLs
    */
@@ -322,10 +349,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateStatus('URL list cleared');
   }
-  
-  /**
-   * Handle URL collection method change
-   */
   function handleUrlCollectionMethodChange() {
     const selectedValue = document.querySelector('input[name="url-collection"]:checked').value;
     
@@ -589,9 +612,15 @@ document.addEventListener('DOMContentLoaded', () => {
       .then((blob) => {
         // Download the ZIP file
         downloadBlob(blob, `${outputFilename}.zip`);
-        
+
         showProgressBar(100);
         updateStatus(`Downloaded ${processedPages.length} pages as ${outputFilename}.zip`);
+
+        // Clear stored pages after download
+        chrome.runtime.sendMessage({ action: 'clearPages' });
+        processedPages = [];
+        downloadZipButton.disabled = true;
+        renderUrlList();
       })
       .catch((error) => {
         console.error('Error creating ZIP file', error);

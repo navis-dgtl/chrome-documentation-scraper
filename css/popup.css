@@ -389,6 +389,25 @@
     border-bottom: 1px solid var(--border-color);
   }
 
+  .url-buttons {
+    display: flex;
+    align-items: center;
+  }
+
+  .url-preview {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--primary-color);
+    margin-right: 4px;
+    font-size: 12px;
+    text-decoration: underline;
+  }
+
+  .url-preview:hover {
+    color: var(--primary-hover);
+  }
+
   .url-item:last-child {
     border-bottom: none;
   }
