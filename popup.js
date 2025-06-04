@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const manualUrlsTextarea = document.getElementById('manual-urls');
   const collectedUrlsContainer = document.getElementById('collected-urls-container');
   const urlListElement = document.getElementById('url-list');
+  const clearUrlsButton = document.getElementById('clear-urls');
   const includePatternInput = document.getElementById('include-pattern');
   const excludePatternInput = document.getElementById('exclude-pattern');
   const scanPageButton = document.getElementById('scan-page');
@@ -22,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeImagesCheckbox = document.getElementById('include-images');
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
+  const removeSelectorsInput = document.getElementById('remove-selectors');
+  const darkModeToggle = document.getElementById('enable-dark-mode');
   
   // Extraction control elements
   const extractionControls = document.getElementById('extraction-controls');
@@ -39,11 +42,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let extractionPaused = false;
   let extractionActive = false;
   let extractionOptions = {};
+  let resumePromptShown = false;
   
   // Initialize UI and collapsible sections
   initializeUI();
   setupCollapsibleSections();
   setupExtractionControlListeners();
+  initializeDarkMode();
   
   /**
    * Initialize collapsible sections
@@ -95,7 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
   scanPageButton.addEventListener('click', handleScanPage);
   extractContentButton.addEventListener('click', handleExtractContent);
   downloadZipButton.addEventListener('click', handleDownloadZip);
+  clearUrlsButton.addEventListener('click', handleClearUrls);
   timeoutInput.addEventListener('change', handleTimeoutChange);
+  darkModeToggle.addEventListener('change', handleDarkModeToggle);
   
   /**
    * Initialize UI state
@@ -112,11 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
           extractionActive = response.extractionState.active;
           extractionPaused = response.extractionState.paused;
           currentUrlIndex = response.extractionState.currentIndex;
-          
+
           // Update UI based on extraction state
           if (extractionActive) {
             extractionControls.classList.remove('hidden');
-            
+
             if (extractionPaused) {
               pauseExtractionButton.classList.add('hidden');
               resumeExtractionButton.classList.remove('hidden');
@@ -124,10 +131,31 @@ document.addEventListener('DOMContentLoaded', () => {
               pauseExtractionButton.classList.remove('hidden');
               resumeExtractionButton.classList.add('hidden');
             }
-            
+
             // Show progress
             const progress = Math.round((currentUrlIndex / collectedUrls.length) * 100);
             showProgressBar(progress);
+
+            if (extractionPaused) {
+              updateStatus(`Paused at ${currentUrlIndex}/${collectedUrls.length} URLs`);
+            }
+
+            if (!resumePromptShown && extractionPaused && currentUrlIndex < collectedUrls.length) {
+              resumePromptShown = true;
+              if (confirm(`Resume previous extraction from URL ${currentUrlIndex + 1} of ${collectedUrls.length}?`)) {
+                handleResumeExtraction();
+              } else {
+                chrome.runtime.sendMessage({ action: 'resetState' }, () => {
+                  collectedUrls = [];
+                  processedPages = [];
+                  currentUrlIndex = 0;
+                  extractionActive = false;
+                  extractionPaused = false;
+                  renderUrlList();
+                  showProgressBar(0);
+                });
+              }
+            }
           }
         }
         
@@ -202,6 +230,13 @@ document.addEventListener('DOMContentLoaded', () => {
         timeoutInput.value = res.timeout;
       }
     });
+
+    // Load saved selectors to remove
+    chrome.storage.local.get('removeSelectors', (res) => {
+      if (res.removeSelectors) {
+        removeSelectorsInput.value = res.removeSelectors;
+      }
+    });
   }
   
   /**
@@ -256,6 +291,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // Hide the container if no URLs
       collectedUrlsContainer.classList.add('hidden');
     }
+
+    // Enable/disable extract button based on list state
+    extractContentButton.disabled = collectedUrls.length === 0;
   }
   
   /**
@@ -286,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  /**
+/**
    * Handle preview button click
    */
   function handlePreviewPage(event) {
@@ -296,9 +334,21 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.tabs.create({ url });
     }
   }
+
   /**
-   * Handle URL collection method change
+   * Handle clearing all collected URLs
    */
+  function handleClearUrls() {
+    collectedUrls = [];
+    renderUrlList();
+
+    chrome.runtime.sendMessage({
+      action: 'setUrls',
+      urls: []
+    });
+
+    updateStatus('URL list cleared');
+  }
   function handleUrlCollectionMethodChange() {
     const selectedValue = document.querySelector('input[name="url-collection"]:checked').value;
     
@@ -423,14 +473,21 @@ document.addEventListener('DOMContentLoaded', () => {
       updateStatus('No URLs to process');
       return;
     }
-    
+
     // Get content options
     const options = {
       includeHeadings: includeHeadingsCheckbox.checked,
       includeImages: includeImagesCheckbox.checked,
       includeLinks: includeLinksCheckbox.checked,
-      includeCodeBlocks: includeCodeBlocksCheckbox.checked
+      includeCodeBlocks: includeCodeBlocksCheckbox.checked,
+      selectorsToRemove: removeSelectorsInput.value
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
     };
+
+    // Persist selectors across sessions
+    chrome.storage.local.set({ removeSelectors: removeSelectorsInput.value.trim() });
     
     // Show extraction controls
     extractionControls.classList.remove('hidden');
@@ -581,6 +638,36 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       updateStatus('Invalid timeout value');
     }
+  }
+
+  /**
+   * Initialize dark mode based on stored preference
+   */
+  function initializeDarkMode() {
+    chrome.storage.local.get('darkModeEnabled', (data) => {
+      let enabled = data.darkModeEnabled;
+      if (enabled === undefined) {
+        enabled = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        chrome.storage.local.set({ darkModeEnabled: enabled });
+      }
+      darkModeToggle.checked = !!enabled;
+      if (enabled) {
+        document.body.classList.add('dark-mode');
+      }
+    });
+  }
+
+  /**
+   * Handle dark mode toggle changes
+   */
+  function handleDarkModeToggle() {
+    const enabled = darkModeToggle.checked;
+    if (enabled) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+    chrome.storage.local.set({ darkModeEnabled: enabled });
   }
   
   /**

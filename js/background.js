@@ -26,6 +26,39 @@ let extractionState = {
   isProcessing: false
 };
 
+// Load stored state from chrome.storage
+function initializeFromStorage() {
+  chrome.storage.local.get(['collectedData', 'extractionState'], (result) => {
+    if (result.collectedData) {
+      collectedData = result.collectedData;
+      // If extension was processing, mark as paused
+      if (collectedData.status === 'processing') {
+        collectedData.status = 'paused';
+      }
+    }
+
+    if (result.extractionState) {
+      extractionState = {
+        ...extractionState,
+        ...result.extractionState,
+        currentTab: null,
+        isProcessing: false,
+      };
+
+      // Ensure extraction is paused on restart if it was active
+      if (extractionState.active && !extractionState.paused) {
+        extractionState.paused = true;
+        collectedData.status = 'paused';
+      }
+    }
+
+    updateBadge();
+  });
+}
+
+// Initialize from storage when the background script loads
+initializeFromStorage();
+
 // Default timeout for page loading (in milliseconds)
 const DEFAULT_TIMEOUT = 8000;
 // Current timeout value, loaded from config or storage
@@ -335,7 +368,12 @@ function startExtraction(options) {
     collectedData.pages = [];
     
     // Store options for extraction
-    extractionState.options = options || {};
+    extractionState.options = {
+      ...(options || {}),
+      selectorsToRemove: Array.isArray(options?.selectorsToRemove)
+        ? options.selectorsToRemove
+        : []
+    };
     
     // Set extraction state
     extractionState.active = true;
@@ -423,26 +461,7 @@ updateBadge();
 
 // Handle Chrome startup - re-initialize state
 chrome.runtime.onStartup.addListener(() => {
-  extractionState = {
-    active: false,
-    paused: false,
-    currentIndex: 0,
-    options: {},
-    currentTab: null,
-    isProcessing: false
-  };
-  
-  // Reload saved data from storage if needed
-  chrome.storage.local.get(['collectedData'], (result) => {
-    if (result.collectedData) {
-      collectedData = result.collectedData;
-      // Ensure status is not processing on restart
-      if (collectedData.status === 'processing') {
-        collectedData.status = 'ready';
-      }
-      updateBadge();
-    }
-  });
+  initializeFromStorage();
 });
 
 // Listen for messages from popup or content scripts
@@ -475,7 +494,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       currentTab: null,
       isProcessing: false
     };
-    
+
+    // Clear stored data
+    chrome.storage.local.remove(['collectedData', 'extractionState']);
+
     updateBadge();
     sendResponse({ success: true });
   } else if (request.action === 'setUrls') {
@@ -534,7 +556,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Persist data to storage periodically
 setInterval(() => {
-  if (collectedData.urls.length > 0 || collectedData.pages.length > 0) {
-    chrome.storage.local.set({ collectedData });
+  if (
+    collectedData.urls.length > 0 ||
+    collectedData.pages.length > 0 ||
+    extractionState.active
+  ) {
+    chrome.storage.local.set({ collectedData, extractionState });
   }
 }, 10000); // Every 10 seconds
