@@ -22,8 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeImagesCheckbox = document.getElementById('include-images');
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
-  const removeSelectorsInput = document.getElementById("remove-selectors");
-  const darkModeToggle = document.getElementById("enable-dark-mode");
+  const removeSelectorsInput = document.getElementById('remove-selectors');
+  const darkModeToggle = document.getElementById('enable-dark-mode');
   
   // Extraction control elements
   const extractionControls = document.getElementById('extraction-controls');
