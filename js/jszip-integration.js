@@ -109,17 +109,6 @@ function createReadmeContent(pages, options) {
   return content;
 }
 
-/**
- * Sanitize filename to remove invalid characters
- * @param {string} filename - Original filename
- * @returns {string} - Sanitized filename
- */
-function sanitizeFilename(filename) {
-  return filename
-    .replace(/[/\\?%*:|"<>]/g, '-')
-    .replace(/\s+/g, '-')
-    .substring(0, 100); // Limit length
-}
 
 /**
  * Download a blob as a file
