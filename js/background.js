@@ -1,5 +1,14 @@
 // background.js - Background script for the extension
 
+// Debug flag for verbose logging. Set to true during development.
+const DEBUG = false;
+
+function debugLog(...args) {
+  if (DEBUG) {
+    console.log(...args);
+  }
+}
+
 // Store collected data
 let collectedData = {
   urls: [],
@@ -139,7 +148,7 @@ function processNextUrl() {
           chrome.tabs.onUpdated.removeListener(tabUpdateListener);
         }
         
-        console.log(`Tab load timeout for ${currentUrl}, trying to process anyway`);
+        debugLog(`Tab load timeout for ${currentUrl}, trying to process anyway`);
         tabProcessed = true;
         
         // Try to process anyway or skip
@@ -210,13 +219,13 @@ function finishProcessingUrl(tabId) {
         chrome.tabs.get(tabId, (tab) => {
           if (chrome.runtime.lastError) {
             // Tab doesn't exist, just continue
-            console.log('Tab already closed:', chrome.runtime.lastError.message);
+            debugLog('Tab already closed:', chrome.runtime.lastError.message);
             continueToNextUrl();
           } else if (tab) {
             // Tab exists, try to close it
             chrome.tabs.remove(tabId, () => {
               if (chrome.runtime.lastError) {
-                console.log('Error closing tab:', chrome.runtime.lastError.message);
+                debugLog('Error closing tab:', chrome.runtime.lastError.message);
               }
               continueToNextUrl();
             });
@@ -349,7 +358,7 @@ function stopExtraction() {
       try {
         chrome.tabs.remove(extractionState.currentTab, () => {
           if (chrome.runtime.lastError) {
-            console.log('Error closing tab:', chrome.runtime.lastError.message);
+            debugLog('Error closing tab:', chrome.runtime.lastError.message);
           }
         });
       } catch (error) {
