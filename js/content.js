@@ -20,7 +20,8 @@ function extractContent(options) {
     includeImages = true,
     includeLinks = true,
     includeCodeBlocks = true,
-    baseUrl = window.location.href // Use provided baseUrl or default to current URL
+    baseUrl = window.location.href, // Use provided baseUrl or default to current URL
+    selectorsToRemove = []
   } = options || {};
 
   // Get page metadata
@@ -43,8 +44,11 @@ function extractContent(options) {
     '.cookie-banner', '.ad', '.advertisement', '.popup', '.modal',
     '#cookie-consent', '#newsletter-signup', '.sidebar'
   ];
-  
-  elementsToRemove.forEach(selector => {
+  const allSelectors = elementsToRemove.concat(
+    Array.isArray(selectorsToRemove) ? selectorsToRemove : []
+  );
+
+  allSelectors.forEach(selector => {
     const elements = bodyClone.querySelectorAll(selector);
     elements.forEach(el => el.remove());
   });

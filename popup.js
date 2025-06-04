@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeImagesCheckbox = document.getElementById('include-images');
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
-  const darkModeToggle = document.getElementById('enable-dark-mode');
+  const removeSelectorsInput = document.getElementById("remove-selectors");
+  const darkModeToggle = document.getElementById("enable-dark-mode");
   
   // Extraction control elements
   const extractionControls = document.getElementById('extraction-controls');
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let extractionPaused = false;
   let extractionActive = false;
   let extractionOptions = {};
+  let resumePromptShown = false;
   
   // Initialize UI and collapsible sections
   initializeUI();
@@ -115,11 +117,11 @@ document.addEventListener('DOMContentLoaded', () => {
           extractionActive = response.extractionState.active;
           extractionPaused = response.extractionState.paused;
           currentUrlIndex = response.extractionState.currentIndex;
-          
+
           // Update UI based on extraction state
           if (extractionActive) {
             extractionControls.classList.remove('hidden');
-            
+
             if (extractionPaused) {
               pauseExtractionButton.classList.add('hidden');
               resumeExtractionButton.classList.remove('hidden');
@@ -127,10 +129,31 @@ document.addEventListener('DOMContentLoaded', () => {
               pauseExtractionButton.classList.remove('hidden');
               resumeExtractionButton.classList.add('hidden');
             }
-            
+
             // Show progress
             const progress = Math.round((currentUrlIndex / collectedUrls.length) * 100);
             showProgressBar(progress);
+
+            if (extractionPaused) {
+              updateStatus(`Paused at ${currentUrlIndex}/${collectedUrls.length} URLs`);
+            }
+
+            if (!resumePromptShown && extractionPaused && currentUrlIndex < collectedUrls.length) {
+              resumePromptShown = true;
+              if (confirm(`Resume previous extraction from URL ${currentUrlIndex + 1} of ${collectedUrls.length}?`)) {
+                handleResumeExtraction();
+              } else {
+                chrome.runtime.sendMessage({ action: 'resetState' }, () => {
+                  collectedUrls = [];
+                  processedPages = [];
+                  currentUrlIndex = 0;
+                  extractionActive = false;
+                  extractionPaused = false;
+                  renderUrlList();
+                  showProgressBar(0);
+                });
+              }
+            }
           }
         }
         
@@ -203,6 +226,13 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({ action: 'getTimeout' }, (res) => {
       if (res && res.timeout) {
         timeoutInput.value = res.timeout;
+      }
+    });
+
+    // Load saved selectors to remove
+    chrome.storage.local.get('removeSelectors', (res) => {
+      if (res.removeSelectors) {
+        removeSelectorsInput.value = res.removeSelectors;
       }
     });
   }
@@ -400,14 +430,21 @@ document.addEventListener('DOMContentLoaded', () => {
       updateStatus('No URLs to process');
       return;
     }
-    
+
     // Get content options
     const options = {
       includeHeadings: includeHeadingsCheckbox.checked,
       includeImages: includeImagesCheckbox.checked,
       includeLinks: includeLinksCheckbox.checked,
-      includeCodeBlocks: includeCodeBlocksCheckbox.checked
+      includeCodeBlocks: includeCodeBlocksCheckbox.checked,
+      selectorsToRemove: removeSelectorsInput.value
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
     };
+
+    // Persist selectors across sessions
+    chrome.storage.local.set({ removeSelectors: removeSelectorsInput.value.trim() });
     
     // Show extraction controls
     extractionControls.classList.remove('hidden');
