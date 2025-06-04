@@ -596,7 +596,11 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function initializeDarkMode() {
     chrome.storage.local.get('darkModeEnabled', (data) => {
-      const enabled = data.darkModeEnabled;
+      let enabled = data.darkModeEnabled;
+      if (enabled === undefined) {
+        enabled = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        chrome.storage.local.set({ darkModeEnabled: enabled });
+      }
       darkModeToggle.checked = !!enabled;
       if (enabled) {
         document.body.classList.add('dark-mode');
