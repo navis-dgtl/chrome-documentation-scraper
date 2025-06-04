@@ -335,7 +335,12 @@ function startExtraction(options) {
     collectedData.pages = [];
     
     // Store options for extraction
-    extractionState.options = options || {};
+    extractionState.options = {
+      ...(options || {}),
+      selectorsToRemove: Array.isArray(options?.selectorsToRemove)
+        ? options.selectorsToRemove
+        : []
+    };
     
     // Set extraction state
     extractionState.active = true;
