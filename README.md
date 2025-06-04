@@ -22,6 +22,14 @@ A Chrome Extension that makes it easy to extract and save web content as markdow
 5. Click "Load unpacked" and select the extracted directory
 6. The extension icon should appear in your Chrome toolbar
 
+## Permissions
+
+The extension needs access to webpages in order to extract their content. The
+`manifest.json` file requests permission for all HTTP and HTTPS URLs using the
+patterns `http://*/*` and `https://*/*`. This allows you to run the extractor on
+any public site without editing the extension. If you only plan to use it on
+specific domains, you can replace these patterns with the hosts you require.
+
 ## Usage
 
 ### Basic Usage
