@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusText = document.getElementById('status-text');
   const progressBar = document.getElementById('progress-bar');
   const outputFilenameInput = document.getElementById('output-filename');
+  const timeoutInput = document.getElementById('tab-load-timeout');
   const createIndexCheckbox = document.getElementById('create-index');
   const includeHeadingsCheckbox = document.getElementById('include-headings');
   const includeImagesCheckbox = document.getElementById('include-images');
@@ -94,6 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
   scanPageButton.addEventListener('click', handleScanPage);
   extractContentButton.addEventListener('click', handleExtractContent);
   downloadZipButton.addEventListener('click', handleDownloadZip);
+  timeoutInput.addEventListener('change', handleTimeoutChange);
   
   /**
    * Initialize UI state
@@ -191,6 +193,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
         }
+      }
+    });
+
+    // Load current timeout value
+    chrome.runtime.sendMessage({ action: 'getTimeout' }, (res) => {
+      if (res && res.timeout) {
+        timeoutInput.value = res.timeout;
       }
     });
   }
@@ -528,6 +537,18 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('Error creating ZIP file', error);
         updateStatus('Error creating ZIP file');
       });
+  }
+
+  /**
+   * Handle timeout input change
+   */
+  function handleTimeoutChange() {
+    const value = parseInt(timeoutInput.value, 10);
+    if (!isNaN(value) && value > 0) {
+      chrome.runtime.sendMessage({ action: 'setTimeout', timeout: value });
+    } else {
+      updateStatus('Invalid timeout value');
+    }
   }
   
   /**
