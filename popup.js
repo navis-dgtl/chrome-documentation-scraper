@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const manualUrlsTextarea = document.getElementById('manual-urls');
   const collectedUrlsContainer = document.getElementById('collected-urls-container');
   const urlListElement = document.getElementById('url-list');
+  const clearUrlsButton = document.getElementById('clear-urls');
   const includePatternInput = document.getElementById('include-pattern');
   const excludePatternInput = document.getElementById('exclude-pattern');
   const scanPageButton = document.getElementById('scan-page');
@@ -99,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
   scanPageButton.addEventListener('click', handleScanPage);
   extractContentButton.addEventListener('click', handleExtractContent);
   downloadZipButton.addEventListener('click', handleDownloadZip);
+  clearUrlsButton.addEventListener('click', handleClearUrls);
   timeoutInput.addEventListener('change', handleTimeoutChange);
   darkModeToggle.addEventListener('change', handleDarkModeToggle);
   
@@ -273,6 +275,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // Hide the container if no URLs
       collectedUrlsContainer.classList.add('hidden');
     }
+
+    // Enable/disable extract button based on list state
+    extractContentButton.disabled = collectedUrls.length === 0;
   }
   
   /**
@@ -301,6 +306,21 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update extract button state
       extractContentButton.disabled = collectedUrls.length === 0;
     }
+  }
+
+  /**
+   * Handle clearing all collected URLs
+   */
+  function handleClearUrls() {
+    collectedUrls = [];
+    renderUrlList();
+
+    chrome.runtime.sendMessage({
+      action: 'setUrls',
+      urls: []
+    });
+
+    updateStatus('URL list cleared');
   }
   
   /**
