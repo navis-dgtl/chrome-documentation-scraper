@@ -347,6 +347,32 @@
     background-color: white;
   }
 
+  .url-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  .secondary-button {
+    padding: 6px 12px;
+    background-color: var(--secondary-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 14px;
+    transition: var(--transition);
+  }
+
+  .secondary-button:hover {
+    background-color: #e9ecef;
+  }
+
+  .secondary-button:disabled {
+    background-color: var(--border-color);
+    cursor: not-allowed;
+  }
+
   .url-item {
     display: flex;
     justify-content: space-between;
