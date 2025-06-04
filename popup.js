@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeImagesCheckbox = document.getElementById('include-images');
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
+  const removeSelectorsInput = document.getElementById('remove-selectors');
   
   // Extraction control elements
   const extractionControls = document.getElementById('extraction-controls');
@@ -200,6 +201,13 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({ action: 'getTimeout' }, (res) => {
       if (res && res.timeout) {
         timeoutInput.value = res.timeout;
+      }
+    });
+
+    // Load saved selectors to remove
+    chrome.storage.local.get('removeSelectors', (res) => {
+      if (res.removeSelectors) {
+        removeSelectorsInput.value = res.removeSelectors;
       }
     });
   }
@@ -397,14 +405,21 @@ document.addEventListener('DOMContentLoaded', () => {
       updateStatus('No URLs to process');
       return;
     }
-    
+
     // Get content options
     const options = {
       includeHeadings: includeHeadingsCheckbox.checked,
       includeImages: includeImagesCheckbox.checked,
       includeLinks: includeLinksCheckbox.checked,
-      includeCodeBlocks: includeCodeBlocksCheckbox.checked
+      includeCodeBlocks: includeCodeBlocksCheckbox.checked,
+      selectorsToRemove: removeSelectorsInput.value
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0)
     };
+
+    // Persist selectors across sessions
+    chrome.storage.local.set({ removeSelectors: removeSelectorsInput.value.trim() });
     
     // Show extraction controls
     extractionControls.classList.remove('hidden');
