@@ -61,6 +61,12 @@ A Chrome Extension that makes it easy to extract and save web content as markdow
 3. Generate icons: `node generate-icons.js`
 4. Load the extension in Chrome as described in the Installation section
 
+### Debugging
+
+Set the `DEBUG` flag to `true` in `js/background.js` and `js/content.js` to
+enable verbose logging while developing. Keeping the flag `false` will suppress
+debug logs in production builds.
+
 ## License
 
 MIT License

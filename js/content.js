@@ -1,5 +1,14 @@
 // content.js - Content script that runs in the context of web pages
 
+// Debug flag for verbose logging. Enable while developing.
+const DEBUG = false;
+
+function debugLog(...args) {
+  if (DEBUG) {
+    console.log(...args);
+  }
+}
+
 /**
  * Extract content from the current page and convert to markdown
  * @param {Object} options - Extraction options
@@ -370,16 +379,16 @@ function collectLinks(options = {}) {
 
 // Listen for messages from popup or background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Content script received message:', request.action);
+  debugLog('Content script received message:', request.action);
   
   try {
     if (request.action === 'extractContent') {
       const result = extractContent(request.options);
-      console.log('Extracted content:', result ? 'Success' : 'Failed');
+      debugLog('Extracted content:', result ? 'Success' : 'Failed');
       sendResponse(result);
     } else if (request.action === 'collectLinks') {
       const links = collectLinks(request.options);
-      console.log('Collected links:', links.length);
+      debugLog('Collected links:', links.length);
       sendResponse({ links });
     }
   } catch (error) {
@@ -392,4 +401,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Log that content script is loaded
-console.log('Navis.ai Knowledge Builder content script loaded at', new Date().toISOString());
+debugLog('Navis.ai Knowledge Builder content script loaded at', new Date().toISOString());
