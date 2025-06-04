@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const includeImagesCheckbox = document.getElementById('include-images');
   const includeLinksCheckbox = document.getElementById('include-links');
   const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
+  const darkModeToggle = document.getElementById('enable-dark-mode');
   
   // Extraction control elements
   const extractionControls = document.getElementById('extraction-controls');
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initializeUI();
   setupCollapsibleSections();
   setupExtractionControlListeners();
+  initializeDarkMode();
   
   /**
    * Initialize collapsible sections
@@ -96,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
   extractContentButton.addEventListener('click', handleExtractContent);
   downloadZipButton.addEventListener('click', handleDownloadZip);
   timeoutInput.addEventListener('change', handleTimeoutChange);
+  darkModeToggle.addEventListener('change', handleDarkModeToggle);
   
   /**
    * Initialize UI state
@@ -549,6 +552,32 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       updateStatus('Invalid timeout value');
     }
+  }
+
+  /**
+   * Initialize dark mode based on stored preference
+   */
+  function initializeDarkMode() {
+    chrome.storage.local.get('darkModeEnabled', (data) => {
+      const enabled = data.darkModeEnabled;
+      darkModeToggle.checked = !!enabled;
+      if (enabled) {
+        document.body.classList.add('dark-mode');
+      }
+    });
+  }
+
+  /**
+   * Handle dark mode toggle changes
+   */
+  function handleDarkModeToggle() {
+    const enabled = darkModeToggle.checked;
+    if (enabled) {
+      document.body.classList.add('dark-mode');
+    } else {
+      document.body.classList.remove('dark-mode');
+    }
+    chrome.storage.local.set({ darkModeEnabled: enabled });
   }
   
   /**
