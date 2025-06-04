@@ -17,6 +17,32 @@ let extractionState = {
   isProcessing: false
 };
 
+// Default timeout for page loading (in milliseconds)
+const DEFAULT_TIMEOUT = 8000;
+// Current timeout value, loaded from config or storage
+let tabLoadTimeout = DEFAULT_TIMEOUT;
+
+// Load timeout from config.json and storage
+fetch(chrome.runtime.getURL('config.json'))
+  .then((res) => res.json())
+  .then((cfg) => {
+    if (typeof cfg.tabLoadTimeout === 'number') {
+      tabLoadTimeout = cfg.tabLoadTimeout;
+    }
+    chrome.storage.local.get('tabLoadTimeout', (result) => {
+      if (typeof result.tabLoadTimeout === 'number') {
+        tabLoadTimeout = result.tabLoadTimeout;
+      }
+    });
+  })
+  .catch(() => {
+    chrome.storage.local.get('tabLoadTimeout', (result) => {
+      if (typeof result.tabLoadTimeout === 'number') {
+        tabLoadTimeout = result.tabLoadTimeout;
+      }
+    });
+  });
+
 // Set badge color based on status
 function updateBadge() {
   let color, text;
@@ -144,7 +170,7 @@ function processNextUrl() {
         
         // Try to process anyway or skip
         processTabContent(tab.id, currentUrl);
-      }, 8000); // 8 second timeout
+      }, tabLoadTimeout); // Timeout configurable
     });
   } catch (error) {
     console.error('Error creating tab:', error);
@@ -277,6 +303,16 @@ function broadcastState() {
       }
     }
   });
+}
+
+// Update timeout value and persist to storage
+function updateTimeout(value) {
+  if (typeof value === 'number' && value > 0) {
+    tabLoadTimeout = value;
+    chrome.storage.local.set({ tabLoadTimeout: value });
+    return { success: true };
+  }
+  return { success: false, message: 'Invalid timeout value' };
 }
 
 // Control functions
@@ -463,6 +499,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'stopExtraction') {
     // Stop background extraction process
     const result = stopExtraction();
+    sendResponse(result);
+  } else if (request.action === 'getTimeout') {
+    // Return current timeout value
+    sendResponse({ timeout: tabLoadTimeout });
+  } else if (request.action === 'setTimeout') {
+    // Update timeout value
+    const result = updateTimeout(request.timeout);
     sendResponse(result);
   }
   
