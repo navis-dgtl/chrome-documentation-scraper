@@ -343,14 +343,24 @@ function collectLinks(options = {}) {
   
   // Apply filters if provided
   let filteredLinks = links;
-  
+
   if (includePattern) {
-    const includeRegex = new RegExp(includePattern);
+    let includeRegex;
+    try {
+      includeRegex = new RegExp(includePattern);
+    } catch (e) {
+      throw new Error(`Invalid include pattern: ${e.message}`);
+    }
     filteredLinks = filteredLinks.filter(link => includeRegex.test(link.url));
   }
-  
+
   if (excludePattern) {
-    const excludeRegex = new RegExp(excludePattern);
+    let excludeRegex;
+    try {
+      excludeRegex = new RegExp(excludePattern);
+    } catch (e) {
+      throw new Error(`Invalid exclude pattern: ${e.message}`);
+    }
     filteredLinks = filteredLinks.filter(link => !excludeRegex.test(link.url));
   }
   

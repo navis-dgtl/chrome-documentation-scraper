@@ -314,7 +314,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
               }
               
-              if (response && response.links) {
+              if (response && response.error) {
+                updateStatus('Error: ' + response.error);
+              } else if (response && response.links) {
                 collectedUrls = response.links;
                 
                 // Store URLs in background script
