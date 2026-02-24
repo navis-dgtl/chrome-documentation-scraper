@@ -1,234 +1,144 @@
-// markdown-utils.js - Utilities for markdown processing and enhancement
+// markdown-utils.js - Markdown enhancement and post-processing utilities
 
 /**
- * Enhance markdown content with additional formatting and features
- * @param {string} markdown - Original markdown content
- * @param {Object} options - Enhancement options
- * @returns {string} - Enhanced markdown content
+ * Enhance markdown content with frontmatter, TOC, and other features.
+ * @param {string} markdown
+ * @param {Object} options
+ * @returns {string}
  */
 function enhanceMarkdown(markdown, options = {}) {
-  let enhancedMarkdown = markdown;
-  
-  // Add frontmatter if requested
+  let md = markdown;
+
   if (options.addFrontmatter) {
-    enhancedMarkdown = addFrontmatter(enhancedMarkdown, options.metadata);
+    md = addFrontmatter(md, options.metadata);
   }
-  
-  // Add table of contents if requested
   if (options.addTableOfContents) {
-    enhancedMarkdown = addTableOfContents(enhancedMarkdown);
+    md = addTableOfContents(md);
   }
-  
-  // Format code blocks with proper syntax highlighting hints
   if (options.formatCodeBlocks) {
-    enhancedMarkdown = formatCodeBlocks(enhancedMarkdown);
+    md = formatCodeBlocks(md);
   }
-  
-  // Fix relative links if requested
   if (options.fixRelativeLinks) {
-    enhancedMarkdown = fixRelativeLinks(enhancedMarkdown, options.baseUrl || options.metadata?.url || '');
+    md = fixRelativeLinks(md, options.baseUrl || options.metadata?.url || '');
   }
-  
-  // Add section anchors if requested
-  if (options.addSectionAnchors) {
-    enhancedMarkdown = addSectionAnchors(enhancedMarkdown);
-  }
-  
-  return enhancedMarkdown;
+
+  return md;
 }
 
 /**
- * Add YAML frontmatter to markdown content
- * @param {string} markdown - Original markdown content
- * @param {Object} metadata - Metadata to include in frontmatter
- * @returns {string} - Markdown with frontmatter
+ * Add YAML frontmatter.
  */
 function addFrontmatter(markdown, metadata = {}) {
-  const frontmatter = [
+  const lines = [
     '---',
     `title: "${escapeYaml(metadata.title || '')}"`,
     `url: "${escapeYaml(metadata.url || '')}"`,
     `date: "${metadata.timestamp || new Date().toISOString()}"`,
     `source: "${escapeYaml(metadata.domain || '')}"`,
-    '---',
-    '',
-    markdown
-  ].join('\n');
-  
-  return frontmatter;
+  ];
+  if (metadata.description) {
+    lines.push(`description: "${escapeYaml(metadata.description)}"`);
+  }
+  if (metadata.author) {
+    lines.push(`author: "${escapeYaml(metadata.author)}"`);
+  }
+  lines.push('---', '', markdown);
+  return lines.join('\n');
 }
 
-/**
- * Escape special characters in YAML strings
- * @param {string} str - String to escape
- * @returns {string} - Escaped string
- */
 function escapeYaml(str) {
-  return str.replace(/"/g, '\\"');
+  return (str || '').replace(/"/g, '\\"').replace(/\n/g, ' ');
 }
 
 /**
- * Add table of contents to markdown content
- * @param {string} markdown - Original markdown content
- * @returns {string} - Markdown with table of contents
+ * Generate a table of contents from headings.
  */
 function addTableOfContents(markdown) {
-  // Extract headings
   const headingRegex = /^(#{1,6})\s+(.+)$/gm;
   const headings = [];
   let match;
-  
   while ((match = headingRegex.exec(markdown)) !== null) {
-    const level = match[1].length;
-    const text = match[2].trim();
-    const anchor = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-    
     headings.push({
-      level,
-      text,
-      anchor
+      level: match[1].length,
+      text: match[2].trim(),
+      anchor: match[2].trim().toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-'),
     });
   }
-  
-  // Generate table of contents
-  if (headings.length === 0) {
-    return markdown;
-  }
-  
+
+  if (headings.length < 3) return markdown; // Skip TOC for short docs
+
   let toc = '## Table of Contents\n\n';
-  
-  headings.forEach(heading => {
-    // Skip level 1 (title)
-    if (heading.level === 1) {
-      return;
-    }
-    
-    const indent = '  '.repeat(heading.level - 2);
-    toc += `${indent}- [${heading.text}](#${heading.anchor})\n`;
+  headings.forEach(h => {
+    if (h.level === 1) return; // Skip title
+    const indent = '  '.repeat(h.level - 2);
+    toc += `${indent}- [${h.text}](#${h.anchor})\n`;
   });
-  
-  // Find position to insert TOC (after first heading)
-  const firstHeadingMatch = /^#\s+.+$/m.exec(markdown);
-  
-  if (firstHeadingMatch) {
-    const insertPosition = firstHeadingMatch.index + firstHeadingMatch[0].length;
-    return markdown.slice(0, insertPosition) + '\n\n' + toc + '\n' + markdown.slice(insertPosition);
-  } else {
-    return toc + '\n\n' + markdown;
+
+  // Insert after first heading
+  const firstH = /^#\s+.+$/m.exec(markdown);
+  if (firstH) {
+    const pos = firstH.index + firstH[0].length;
+    return markdown.slice(0, pos) + '\n\n' + toc + '\n' + markdown.slice(pos);
   }
+  return toc + '\n\n' + markdown;
 }
 
 /**
- * Format code blocks with proper syntax highlighting hints
- * @param {string} markdown - Original markdown content
- * @returns {string} - Markdown with formatted code blocks
+ * Try to detect language for unlabeled code blocks.
  */
 function formatCodeBlocks(markdown) {
-  // Detect language in code blocks without language specified
-  return markdown.replace(/```(\s*\n[\s\S]+?```)/g, (match, codeContent) => {
-    // Try to detect language based on content
-    const language = detectCodeLanguage(codeContent);
-    return '```' + language + codeContent;
+  return markdown.replace(/```(\s*\n)([\s\S]*?)```/g, (match, ws, code) => {
+    // Only detect if no language is specified (just whitespace after ```)
+    if (ws.trim() === '') {
+      const lang = detectLanguage(code);
+      return '```' + lang + '\n' + code + '```';
+    }
+    return match;
   });
 }
 
-/**
- * Detect programming language from code content
- * @param {string} code - Code content
- * @returns {string} - Detected language or empty string
- */
-function detectCodeLanguage(code) {
-  // Simple language detection based on keywords and syntax
-  if (/\b(function|const|let|var|return|if|else|for|while)\b/.test(code) && 
-      /[{};]/.test(code)) {
-    return 'javascript';
-  } else if (/\b(def|class|import|from|if|else|for|while|try|except)\b/.test(code) && 
-            /:\s*$/.test(code)) {
-    return 'python';
-  } else if (/\b(public|private|class|void|static|final|import|package)\b/.test(code) && 
-            /{|}/.test(code)) {
-    return 'java';
-  } else if (/<\/?[a-z][\s\S]*>/i.test(code)) {
-    return 'html';
-  } else if (/\b(SELECT|FROM|WHERE|JOIN|GROUP BY|ORDER BY)\b/i.test(code)) {
-    return 'sql';
-  } else if (/\b(namespace|using|class|public|private|void|int|string)\b/.test(code) && 
-            /{|}/.test(code)) {
-    return 'csharp';
-  } else if (/\b(fn|let|mut|struct|impl|pub|use|match)\b/.test(code) && 
-            /{|}/.test(code)) {
-    return 'rust';
-  }
-  
+function detectLanguage(code) {
+  if (/\b(function|const|let|var|=>|require\(|import\s+.*from)\b/.test(code) && /[{};]/.test(code)) return 'javascript';
+  if (/\b(def |class |import |from .+ import|print\(|if .+:)\b/.test(code)) return 'python';
+  if (/\b(public|private|class|void|static|System\.out)\b/.test(code) && /{|}/.test(code)) return 'java';
+  if (/<\/?[a-z][^>]*>/i.test(code) && /<\/?(div|span|p|a|html|body|head)\b/i.test(code)) return 'html';
+  if (/\b(SELECT|FROM|WHERE|JOIN|INSERT|UPDATE|DELETE)\b/i.test(code)) return 'sql';
+  if (/\b(fn |let mut|struct |impl |pub fn|use |match )\b/.test(code)) return 'rust';
+  if (/\b(func |package |import |fmt\.|go |defer )\b/.test(code)) return 'go';
+  if (/^\s*[\w-]+\s*:\s*.+/m.test(code) && !/[{;}]/.test(code)) return 'yaml';
+  if (/^\s*\{[\s\S]*"[\w]+"/.test(code)) return 'json';
+  if (/^\s*\$\s+/.test(code) || /\b(echo|export|sudo|apt|npm|yarn|pip)\b/.test(code)) return 'bash';
   return '';
 }
 
 /**
- * Fix relative links in markdown content
- * @param {string} markdown - Original markdown content
- * @param {string} baseUrl - Base URL for resolving relative links
- * @returns {string} - Markdown with fixed links
+ * Resolve relative links to absolute URLs.
  */
 function fixRelativeLinks(markdown, baseUrl) {
-  // Fix relative links in markdown
+  if (!baseUrl) return markdown;
   return markdown.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('#')) {
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('#') || url.startsWith('data:')) {
       return match;
     }
-    
     try {
-      const absoluteUrl = new URL(url, baseUrl).href;
-      return `[${text}](${absoluteUrl})`;
-    } catch (e) {
+      return `[${text}](${new URL(url, baseUrl).href})`;
+    } catch {
       return match;
     }
   });
 }
 
 /**
- * Add section anchors to headings
- * @param {string} markdown - Original markdown content
- * @returns {string} - Markdown with section anchors
- */
-function addSectionAnchors(markdown) {
-  return markdown.replace(/^(#{1,6})\s+(.+)$/gm, (match, hashes, text) => {
-    const anchor = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-    return `${hashes} ${text} <a id="${anchor}"></a>`;
-  });
-}
-
-/**
- * Clean and normalize markdown content
- * @param {string} markdown - Original markdown content
- * @returns {string} - Cleaned markdown content
+ * Clean and normalize markdown.
  */
 function cleanMarkdown(markdown) {
-  let cleanedMarkdown = markdown;
-  
-  // Remove duplicate blank lines
-  cleanedMarkdown = cleanedMarkdown.replace(/\n{3,}/g, '\n\n');
-  
-  // Fix list item spacing
-  cleanedMarkdown = cleanedMarkdown.replace(/^(\s*[-*+].*)\n(?!\s*[-*+]|\s*$|\s*[1-9][0-9]*\.)/gm, '$1\n\n');
-  
-  // Fix heading spacing
-  cleanedMarkdown = cleanedMarkdown.replace(/^(#{1,6}.*)\n(?!$|#{1,6})/gm, '$1\n\n');
-  
-  // Fix code block spacing
-  cleanedMarkdown = cleanedMarkdown.replace(/(```.*\n[\s\S]*?```)\n(?!$|```)/g, '$1\n\n');
-  
-  return cleanedMarkdown;
+  let md = markdown;
+  md = md.replace(/\n{3,}/g, '\n\n');
+  md = md.replace(/[ \t]+$/gm, '');
+  md = md.trimEnd() + '\n';
+  return md;
 }
 
-// Export functions
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
-    enhanceMarkdown,
-    addFrontmatter,
-    addTableOfContents,
-    formatCodeBlocks,
-    fixRelativeLinks,
-    addSectionAnchors,
-    cleanMarkdown
-  };
+  module.exports = { enhanceMarkdown, addFrontmatter, addTableOfContents, formatCodeBlocks, fixRelativeLinks, cleanMarkdown };
 }

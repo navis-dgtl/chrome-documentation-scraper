@@ -1,566 +1,521 @@
-// background.js - Background script for the extension
+// background.js - Service worker for managing extraction state and tab orchestration
 
-// Debug flag for verbose logging. Set to true during development.
 const DEBUG = false;
-
 function debugLog(...args) {
-  if (DEBUG) {
-    console.log(...args);
-  }
+  if (DEBUG) console.log('[Navis BG]', ...args);
 }
 
-// Store collected data
+// ─── State ─────────────────────────────────────────────────────────
+
 let collectedData = {
   urls: [],
   pages: [],
-  status: 'idle'
+  status: 'idle', // idle | ready | processing | paused | completed | stopped | error
 };
 
-// Extraction state
 let extractionState = {
   active: false,
   paused: false,
   currentIndex: 0,
   options: {},
-  currentTab: null,
-  isProcessing: false
+  currentTabId: null,
+  isProcessing: false,
+  retryCount: 0,
+  errors: [],
 };
 
-// Load stored state from chrome.storage
+const DEFAULT_TIMEOUT = 15000; // 15s default for SPA sites
+let tabLoadTimeout = DEFAULT_TIMEOUT;
+const MAX_RETRIES = 2;
+const DELAY_BETWEEN_PAGES = 800; // ms between page loads to be polite
+
+// ─── Initialization ────────────────────────────────────────────────
+
 function initializeFromStorage() {
-  chrome.storage.local.get(['collectedData', 'extractionState'], (result) => {
+  chrome.storage.local.get(['collectedData', 'extractionState', 'tabLoadTimeout'], (result) => {
     if (result.collectedData) {
       collectedData = result.collectedData;
-      // If extension was processing, mark as paused
       if (collectedData.status === 'processing') {
         collectedData.status = 'paused';
       }
     }
-
     if (result.extractionState) {
       extractionState = {
         ...extractionState,
         ...result.extractionState,
-        currentTab: null,
+        currentTabId: null,
         isProcessing: false,
+        retryCount: 0,
       };
-
-      // Ensure extraction is paused on restart if it was active
       if (extractionState.active && !extractionState.paused) {
         extractionState.paused = true;
         collectedData.status = 'paused';
       }
     }
-
+    if (typeof result.tabLoadTimeout === 'number') {
+      tabLoadTimeout = result.tabLoadTimeout;
+    }
     updateBadge();
   });
 }
 
-// Initialize from storage when the background script loads
-initializeFromStorage();
-
-// Default timeout for page loading (in milliseconds)
-const DEFAULT_TIMEOUT = 8000;
-// Current timeout value, loaded from config or storage
-let tabLoadTimeout = DEFAULT_TIMEOUT;
-
-// Load timeout from config.json and storage
+// Load config.json for default timeout
 fetch(chrome.runtime.getURL('config.json'))
-  .then((res) => res.json())
-  .then((cfg) => {
+  .then(r => r.json())
+  .then(cfg => {
     if (typeof cfg.tabLoadTimeout === 'number') {
       tabLoadTimeout = cfg.tabLoadTimeout;
     }
-    chrome.storage.local.get('tabLoadTimeout', (result) => {
-      if (typeof result.tabLoadTimeout === 'number') {
-        tabLoadTimeout = result.tabLoadTimeout;
-      }
-    });
   })
-  .catch(() => {
-    chrome.storage.local.get('tabLoadTimeout', (result) => {
-      if (typeof result.tabLoadTimeout === 'number') {
-        tabLoadTimeout = result.tabLoadTimeout;
-      }
-    });
-  });
+  .catch(() => {});
 
-// Set badge color based on status
+initializeFromStorage();
+
+chrome.runtime.onStartup.addListener(initializeFromStorage);
+
+// ─── Badge ─────────────────────────────────────────────────────────
+
 function updateBadge() {
-  let color, text;
-  
+  let color = '#757575';
+  let text = '';
+
   switch (collectedData.status) {
     case 'processing':
-      color = '#4285F4'; // Blue
-      text = `${Math.round((extractionState.currentIndex / collectedData.urls.length) * 100)}%`;
+      color = '#4285F4';
+      text = collectedData.urls.length
+        ? `${Math.round((extractionState.currentIndex / collectedData.urls.length) * 100)}%`
+        : '...';
       break;
     case 'paused':
-      color = '#FBBC05'; // Yellow
+      color = '#FBBC05';
       text = 'PAUSE';
       break;
     case 'completed':
-      color = '#34A853'; // Green
+      color = '#34A853';
       text = 'DONE';
       break;
     case 'ready':
-      color = '#4285F4'; // Blue
-      text = 'READY';
+      color = '#4285F4';
+      text = `${collectedData.urls.length}`;
       break;
     case 'error':
-      color = '#EA4335'; // Red
+      color = '#EA4335';
       text = 'ERR';
       break;
-    default:
-      color = '#757575'; // Gray
-      text = '';
+    case 'stopped':
+      color = '#FF6D01';
+      text = 'STOP';
+      break;
   }
-  
+
   chrome.action.setBadgeBackgroundColor({ color });
   chrome.action.setBadgeText({ text });
 }
 
-// Process URLs strictly one at a time
-function processNextUrl() {
-  // If already processing, don't start another process
-  if (extractionState.isProcessing) {
-    return;
-  }
+// ─── Extraction Orchestration ──────────────────────────────────────
 
-  // Handle extraction completion
+function processNextUrl() {
+  if (extractionState.isProcessing) return;
+  if (extractionState.paused) return;
+
+  // All done?
   if (extractionState.currentIndex >= collectedData.urls.length) {
-    // All URLs processed
     collectedData.status = 'completed';
     extractionState.active = false;
+    extractionState.isProcessing = false;
     updateBadge();
-    
-    // Send notification
+    persistState();
+
     chrome.notifications.create({
       type: 'basic',
       iconUrl: 'images/icon128.png',
-      title: 'Extraction Completed',
-      message: `Successfully processed ${collectedData.pages.length} pages`
+      title: 'Extraction Complete',
+      message: `Processed ${collectedData.pages.length} of ${collectedData.urls.length} pages. ${extractionState.errors.length} errors.`,
     });
-    
-    // Broadcast state update
+
     broadcastState();
     return;
   }
-  
-  // If extraction is paused, don't process
-  if (extractionState.paused) {
-    return;
-  }
 
-  // Set processing flag to prevent concurrent processing
   extractionState.isProcessing = true;
-  
-  const currentUrl = collectedData.urls[extractionState.currentIndex].url;
-  
-  // Set status to processing if not already
-  if (collectedData.status !== 'processing') {
-    collectedData.status = 'processing';
-    broadcastState();
-  }
-  
+  const urlObj = collectedData.urls[extractionState.currentIndex];
+  const currentUrl = urlObj.url;
+
+  collectedData.status = 'processing';
   updateBadge();
-  
-  try {
-    // Open URL in a new tab
-    chrome.tabs.create({ url: currentUrl, active: false }, (tab) => {
-      if (!tab || !tab.id) {
-        console.error('Failed to create tab');
-        finishProcessingUrl(null);
-        return;
-      }
-      
-      extractionState.currentTab = tab.id;
-      let tabProcessed = false;
-      let tabUpdateListenerRemoved = false;
-      
-      // Listen for tab updates to ensure the page is fully loaded
-      const tabUpdateListener = (updatedTabId, changeInfo) => {
-        if (updatedTabId === tab.id && changeInfo.status === 'complete' && !tabProcessed) {
-          // Set flag to prevent multiple processing of the same tab
-          tabProcessed = true;
-          
-          // Prevent multiple executions on the same tab
-          if (tabUpdateListenerRemoved) return;
-          
-          tabUpdateListenerRemoved = true;
-          chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-          
-          // Process the tab content
-          processTabContent(tab.id, currentUrl);
-        }
-      };
-      
-      // Add the listener for tab updates
-      chrome.tabs.onUpdated.addListener(tabUpdateListener);
-      
-      // Failsafe timeout in case the tab never fully loads
-      setTimeout(() => {
-        if (tabProcessed) return;
-        
-        // If not already removed
-        if (!tabUpdateListenerRemoved) {
-          tabUpdateListenerRemoved = true;
-          chrome.tabs.onUpdated.removeListener(tabUpdateListener);
-        }
-        
-        debugLog(`Tab load timeout for ${currentUrl}, trying to process anyway`);
-        tabProcessed = true;
-        
-        // Try to process anyway or skip
-        processTabContent(tab.id, currentUrl);
-      }, tabLoadTimeout); // Timeout configurable
-    });
-  } catch (error) {
-    console.error('Error creating tab:', error);
-    finishProcessingUrl(null);
-  }
-}
-
-// Process the content of a tab
-function processTabContent(tabId, url) {
-  try {
-    // Inject content script if needed
-    chrome.scripting.executeScript({
-      target: { tabId: tabId },
-      files: ['js/content.js']
-    }).then(() => {
-      // Extract content
-      chrome.tabs.sendMessage(
-        tabId,
-        { 
-          action: 'extractContent', 
-          options: {
-            ...extractionState.options,
-            baseUrl: url
-          }
-        },
-        (response) => {
-          const lastError = chrome.runtime.lastError;
-          if (lastError) {
-            console.error('Error communicating with content script:', lastError);
-            finishProcessingUrl(tabId);
-            return;
-          }
-          
-          if (response && response.markdown) {
-            // Add to processed pages
-            collectedData.pages.push({
-              url: url,
-              title: response.metadata.title,
-              markdown: response.markdown,
-              metadata: response.metadata
-            });
-          }
-          
-          finishProcessingUrl(tabId);
-        }
-      );
-    }).catch(error => {
-      console.error('Error injecting content script:', error);
-      finishProcessingUrl(tabId);
-    });
-  } catch (error) {
-    console.error('Error processing tab content:', error);
-    finishProcessingUrl(tabId);
-  }
-}
-
-// Finish processing the current URL and move to the next
-function finishProcessingUrl(tabId) {
-  try {
-    // Only try to close the tab if we have a valid ID
-    if (tabId !== null) {
-      try {
-        chrome.tabs.get(tabId, (tab) => {
-          if (chrome.runtime.lastError) {
-            // Tab doesn't exist, just continue
-            debugLog('Tab already closed:', chrome.runtime.lastError.message);
-            continueToNextUrl();
-          } else if (tab) {
-            // Tab exists, try to close it
-            chrome.tabs.remove(tabId, () => {
-              if (chrome.runtime.lastError) {
-                debugLog('Error closing tab:', chrome.runtime.lastError.message);
-              }
-              continueToNextUrl();
-            });
-          }
-        });
-      } catch (error) {
-        console.error('Error checking tab:', error);
-        continueToNextUrl();
-      }
-    } else {
-      continueToNextUrl();
-    }
-  } catch (error) {
-    console.error('Error in finishProcessingUrl:', error);
-    extractionState.isProcessing = false;
-    
-    // Make sure we continue to the next URL even if there's an error
-    continueToNextUrl();
-  }
-}
-
-// Continue to the next URL in the sequence
-function continueToNextUrl() {
-  // Increment index for next URL
-  extractionState.currentIndex++;
-  
-  // Reset processing flag to allow next URL
-  extractionState.isProcessing = false;
-  extractionState.currentTab = null;
-  
-  // Broadcast state update to any open popups
   broadcastState();
-  
-  // Update badge
-  updateBadge();
-  
-  // If not paused and still active, process the next URL
-  if (!extractionState.paused && extractionState.active) {
-    // Use setTimeout to ensure we're not in the same call stack
-    // This prevents multiple concurrent tab opening
-    setTimeout(() => {
-      processNextUrl();
-    }, 500);
-  }
-}
 
-// Broadcast current state to any open popups
-function broadcastState() {
-  chrome.runtime.sendMessage({
-    action: 'stateUpdate',
-    data: {
-      collectedData,
-      extractionState: {
-        active: extractionState.active,
-        paused: extractionState.paused,
-        currentIndex: extractionState.currentIndex,
-        totalUrls: collectedData.urls.length
-      }
+  debugLog(`Processing [${extractionState.currentIndex + 1}/${collectedData.urls.length}]: ${currentUrl}`);
+
+  // Create a tab for the URL
+  chrome.tabs.create({ url: currentUrl, active: false }, (tab) => {
+    if (chrome.runtime.lastError || !tab || !tab.id) {
+      console.error('Failed to create tab:', chrome.runtime.lastError?.message);
+      handleExtractionError(currentUrl, 'Failed to create tab');
+      return;
     }
+
+    extractionState.currentTabId = tab.id;
+    let processed = false;
+    let listenerRemoved = false;
+
+    const onTabUpdated = (tabId, changeInfo) => {
+      if (tabId !== tab.id || changeInfo.status !== 'complete' || processed) return;
+      processed = true;
+
+      if (!listenerRemoved) {
+        listenerRemoved = true;
+        chrome.tabs.onUpdated.removeListener(onTabUpdated);
+      }
+
+      // Give SPA frameworks extra time to hydrate
+      setTimeout(() => {
+        extractFromTab(tab.id, currentUrl);
+      }, 1500);
+    };
+
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+
+    // Fallback timeout
+    setTimeout(() => {
+      if (processed) return;
+      processed = true;
+      if (!listenerRemoved) {
+        listenerRemoved = true;
+        chrome.tabs.onUpdated.removeListener(onTabUpdated);
+      }
+      debugLog(`Timeout for ${currentUrl}, attempting extraction anyway`);
+      extractFromTab(tab.id, currentUrl);
+    }, tabLoadTimeout);
   });
 }
 
-// Update timeout value and persist to storage
-function updateTimeout(value) {
-  if (typeof value === 'number' && value > 0) {
-    tabLoadTimeout = value;
-    chrome.storage.local.set({ tabLoadTimeout: value });
-    return { success: true };
-  }
-  return { success: false, message: 'Invalid timeout value' };
+function extractFromTab(tabId, url) {
+  // First inject the content script
+  chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['js/content.js'],
+  }).then(() => {
+    // Send extraction message
+    chrome.tabs.sendMessage(
+      tabId,
+      {
+        action: 'extractContent',
+        options: {
+          ...extractionState.options,
+          baseUrl: url,
+        },
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Content script error:', chrome.runtime.lastError.message);
+          handleExtractionError(url, chrome.runtime.lastError.message, tabId);
+          return;
+        }
+
+        if (response && response.error) {
+          handleExtractionError(url, response.error, tabId);
+          return;
+        }
+
+        if (response && response.markdown) {
+          collectedData.pages.push({
+            url,
+            title: response.metadata?.title || url,
+            markdown: response.markdown,
+            metadata: response.metadata || {},
+          });
+          debugLog(`Extracted: ${response.metadata?.title || url}`);
+        }
+
+        finishCurrentUrl(tabId);
+      }
+    );
+  }).catch((error) => {
+    console.error('Script injection error:', error);
+    handleExtractionError(url, error.message, tabId);
+  });
 }
 
-// Control functions
+function handleExtractionError(url, errorMsg, tabId = null) {
+  if (extractionState.retryCount < MAX_RETRIES) {
+    extractionState.retryCount++;
+    debugLog(`Retrying ${url} (attempt ${extractionState.retryCount})`);
+    // Close the failed tab before retrying
+    if (tabId) closeTab(tabId);
+    extractionState.isProcessing = false;
+    setTimeout(() => processNextUrl(), 2000 * extractionState.retryCount);
+    return;
+  }
+
+  // Max retries reached, log error and move on
+  extractionState.errors.push({ url, error: errorMsg });
+  debugLog(`Failed after retries: ${url} - ${errorMsg}`);
+  finishCurrentUrl(tabId);
+}
+
+function finishCurrentUrl(tabId) {
+  extractionState.retryCount = 0;
+
+  if (tabId) {
+    closeTab(tabId);
+  }
+
+  extractionState.currentIndex++;
+  extractionState.isProcessing = false;
+  extractionState.currentTabId = null;
+
+  broadcastState();
+  updateBadge();
+  persistState();
+
+  if (!extractionState.paused && extractionState.active) {
+    setTimeout(processNextUrl, DELAY_BETWEEN_PAGES);
+  }
+}
+
+function closeTab(tabId) {
+  try {
+    chrome.tabs.remove(tabId, () => {
+      if (chrome.runtime.lastError) {
+        debugLog('Tab already closed:', chrome.runtime.lastError.message);
+      }
+    });
+  } catch (e) {
+    debugLog('Error closing tab:', e.message);
+  }
+}
+
+// ─── Control Functions ─────────────────────────────────────────────
+
 function startExtraction(options) {
   if (collectedData.urls.length === 0) {
     return { success: false, message: 'No URLs to process' };
   }
-  
-  if (!extractionState.active) {
-    // Reset pages if starting fresh
-    collectedData.pages = [];
-    
-    // Store options for extraction
-    extractionState.options = {
+  if (extractionState.active) {
+    return { success: false, message: 'Extraction already active' };
+  }
+
+  collectedData.pages = [];
+  extractionState = {
+    active: true,
+    paused: false,
+    currentIndex: 0,
+    options: {
       ...(options || {}),
       selectorsToRemove: Array.isArray(options?.selectorsToRemove)
         ? options.selectorsToRemove
-        : []
-    };
-    
-    // Set extraction state
-    extractionState.active = true;
-    extractionState.paused = false;
-    extractionState.currentIndex = 0;
-    extractionState.isProcessing = false;
-    
-    // Update status
-    collectedData.status = 'processing';
-    updateBadge();
-    
-    // Start processing
-    processNextUrl();
-    
-    return { success: true };
-  }
-  
-  return { success: false, message: 'Extraction already active' };
+        : [],
+    },
+    currentTabId: null,
+    isProcessing: false,
+    retryCount: 0,
+    errors: [],
+  };
+
+  collectedData.status = 'processing';
+  updateBadge();
+  persistState();
+  processNextUrl();
+  return { success: true };
 }
 
 function pauseExtraction() {
-  if (extractionState.active && !extractionState.paused) {
-    extractionState.paused = true;
-    collectedData.status = 'paused';
-    updateBadge();
-    broadcastState();
-    return { success: true };
+  if (!extractionState.active || extractionState.paused) {
+    return { success: false, message: 'Cannot pause' };
   }
-  
-  return { success: false, message: 'Cannot pause: extraction not active or already paused' };
+  extractionState.paused = true;
+  collectedData.status = 'paused';
+  updateBadge();
+  broadcastState();
+  persistState();
+  return { success: true };
 }
 
 function resumeExtraction() {
-  if (extractionState.active && extractionState.paused) {
-    extractionState.paused = false;
-    collectedData.status = 'processing';
-    updateBadge();
-    broadcastState();
-    
-    // Continue processing
-    processNextUrl();
-    
-    return { success: true };
+  if (!extractionState.active || !extractionState.paused) {
+    return { success: false, message: 'Cannot resume' };
   }
-  
-  return { success: false, message: 'Cannot resume: extraction not active or not paused' };
+  extractionState.paused = false;
+  collectedData.status = 'processing';
+  updateBadge();
+  broadcastState();
+  processNextUrl();
+  return { success: true };
 }
 
 function stopExtraction() {
-  if (extractionState.active) {
-    extractionState.active = false;
-    extractionState.paused = false;
-    
-    // If there's a current tab, try to close it
-    if (extractionState.currentTab) {
-      try {
-        chrome.tabs.remove(extractionState.currentTab, () => {
-          if (chrome.runtime.lastError) {
-            debugLog('Error closing tab:', chrome.runtime.lastError.message);
-          }
-        });
-      } catch (error) {
-        console.error('Error closing tab:', error);
-      }
-    }
-    
-    // Update status
-    if (extractionState.currentIndex > 0) {
-      collectedData.status = 'stopped';
-    } else {
-      collectedData.status = 'ready';
-    }
-    
-    updateBadge();
-    broadcastState();
-    
-    return { success: true };
+  if (!extractionState.active) {
+    return { success: false, message: 'Not active' };
   }
-  
-  return { success: false, message: 'Cannot stop: extraction not active' };
+
+  extractionState.active = false;
+  extractionState.paused = false;
+
+  if (extractionState.currentTabId) {
+    closeTab(extractionState.currentTabId);
+    extractionState.currentTabId = null;
+  }
+
+  collectedData.status = extractionState.currentIndex > 0 ? 'stopped' : 'ready';
+  extractionState.isProcessing = false;
+  updateBadge();
+  broadcastState();
+  persistState();
+  return { success: true };
 }
 
-// Initialize badge
-updateBadge();
+// ─── State Broadcasting & Persistence ──────────────────────────────
 
-// Handle Chrome startup - re-initialize state
-chrome.runtime.onStartup.addListener(() => {
-  initializeFromStorage();
-});
-
-// Listen for messages from popup or content scripts
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getState') {
-    // Return current state to popup
-    sendResponse({
-      ...collectedData,
-      extractionState: {
-        active: extractionState.active,
-        paused: extractionState.paused,
-        currentIndex: extractionState.currentIndex,
-        totalUrls: collectedData.urls.length
-      }
+function broadcastState() {
+  try {
+    chrome.runtime.sendMessage({
+      action: 'stateUpdate',
+      data: {
+        collectedData: {
+          urls: collectedData.urls,
+          pages: collectedData.pages,
+          status: collectedData.status,
+        },
+        extractionState: {
+          active: extractionState.active,
+          paused: extractionState.paused,
+          currentIndex: extractionState.currentIndex,
+          totalUrls: collectedData.urls.length,
+          errors: extractionState.errors,
+        },
+      },
+    }).catch(() => {
+      // No listener (popup closed), ignore
     });
-  } else if (request.action === 'resetState') {
-    // Reset collected data
-    collectedData = {
-      urls: [],
-      pages: [],
-      status: 'idle'
-    };
-    
-    // Reset extraction state
-    extractionState = {
-      active: false,
-      paused: false,
-      currentIndex: 0,
-      options: {},
-      currentTab: null,
-      isProcessing: false
-    };
-
-    // Clear stored data
-    chrome.storage.local.remove(['collectedData', 'extractionState']);
-
-    updateBadge();
-    sendResponse({ success: true });
-  } else if (request.action === 'setUrls') {
-    // Set URLs to process
-    collectedData.urls = request.urls;
-    collectedData.status = 'ready';
-    updateBadge();
-    sendResponse({ success: true });
-  } else if (request.action === 'addPage') {
-    // Add processed page data
-    collectedData.pages.push(request.pageData);
-    sendResponse({ success: true });
-  } else if (request.action === 'getPage') {
-    const idx = parseInt(request.index, 10);
-    if (!isNaN(idx) && idx >= 0 && idx < collectedData.pages.length) {
-      sendResponse({ page: collectedData.pages[idx] });
-    } else {
-      sendResponse({});
-    }
-  } else if (request.action === 'clearPages') {
-    collectedData.pages = [];
-    sendResponse({ success: true });
-  } else if (request.action === 'updateStatus') {
-    // Update processing status
-    collectedData.status = request.status;
-    updateBadge();
-    sendResponse({ success: true });
-  } else if (request.action === 'startExtraction') {
-    // Start background extraction process
-    const result = startExtraction(request.options);
-    sendResponse(result);
-  } else if (request.action === 'pauseExtraction') {
-    // Pause background extraction process
-    const result = pauseExtraction();
-    sendResponse(result);
-  } else if (request.action === 'resumeExtraction') {
-    // Resume background extraction process
-    const result = resumeExtraction();
-    sendResponse(result);
-  } else if (request.action === 'stopExtraction') {
-    // Stop background extraction process
-    const result = stopExtraction();
-    sendResponse(result);
-  } else if (request.action === 'getTimeout') {
-    // Return current timeout value
-    sendResponse({ timeout: tabLoadTimeout });
-  } else if (request.action === 'setTimeout') {
-    // Update timeout value
-    const result = updateTimeout(request.timeout);
-    sendResponse(result);
+  } catch (e) {
+    // Ignore - popup may not be open
   }
-  
-  // Return true to indicate async response
-  return true;
+}
+
+function persistState() {
+  chrome.storage.local.set({
+    collectedData: {
+      urls: collectedData.urls,
+      pages: collectedData.pages,
+      status: collectedData.status,
+    },
+    extractionState: {
+      active: extractionState.active,
+      paused: extractionState.paused,
+      currentIndex: extractionState.currentIndex,
+      options: extractionState.options,
+      errors: extractionState.errors,
+    },
+  });
+}
+
+// Also persist periodically as a safety net
+setInterval(() => {
+  if (collectedData.urls.length > 0 || collectedData.pages.length > 0 || extractionState.active) {
+    persistState();
+  }
+}, 15000);
+
+// ─── Message Handler ───────────────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  switch (request.action) {
+    case 'getState':
+      sendResponse({
+        ...collectedData,
+        extractionState: {
+          active: extractionState.active,
+          paused: extractionState.paused,
+          currentIndex: extractionState.currentIndex,
+          totalUrls: collectedData.urls.length,
+          errors: extractionState.errors || [],
+        },
+      });
+      break;
+
+    case 'resetState':
+      collectedData = { urls: [], pages: [], status: 'idle' };
+      extractionState = {
+        active: false,
+        paused: false,
+        currentIndex: 0,
+        options: {},
+        currentTabId: null,
+        isProcessing: false,
+        retryCount: 0,
+        errors: [],
+      };
+      chrome.storage.local.remove(['collectedData', 'extractionState']);
+      updateBadge();
+      sendResponse({ success: true });
+      break;
+
+    case 'setUrls':
+      collectedData.urls = request.urls || [];
+      collectedData.status = collectedData.urls.length > 0 ? 'ready' : 'idle';
+      updateBadge();
+      persistState();
+      sendResponse({ success: true });
+      break;
+
+    case 'addPage':
+      collectedData.pages.push(request.pageData);
+      sendResponse({ success: true });
+      break;
+
+    case 'getPage': {
+      const idx = parseInt(request.index, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < collectedData.pages.length) {
+        sendResponse({ page: collectedData.pages[idx] });
+      } else {
+        sendResponse({});
+      }
+      break;
+    }
+
+    case 'clearPages':
+      collectedData.pages = [];
+      sendResponse({ success: true });
+      break;
+
+    case 'startExtraction':
+      sendResponse(startExtraction(request.options));
+      break;
+
+    case 'pauseExtraction':
+      sendResponse(pauseExtraction());
+      break;
+
+    case 'resumeExtraction':
+      sendResponse(resumeExtraction());
+      break;
+
+    case 'stopExtraction':
+      sendResponse(stopExtraction());
+      break;
+
+    case 'getTimeout':
+      sendResponse({ timeout: tabLoadTimeout });
+      break;
+
+    case 'setTimeout': {
+      const val = request.timeout;
+      if (typeof val === 'number' && val > 0) {
+        tabLoadTimeout = val;
+        chrome.storage.local.set({ tabLoadTimeout: val });
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, message: 'Invalid timeout' });
+      }
+      break;
+    }
+
+    default:
+      sendResponse({ error: 'Unknown action' });
+  }
+
+  return true; // async
 });
 
-// Persist data to storage periodically
-setInterval(() => {
-  if (
-    collectedData.urls.length > 0 ||
-    collectedData.pages.length > 0 ||
-    extractionState.active
-  ) {
-    chrome.storage.local.set({ collectedData, extractionState });
-  }
-}, 10000); // Every 10 seconds
+updateBadge();

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Navis.Digital Knowledge Builder",
-  "version": "1.0.1",
-  "description": "Extract web content and save as markdown files for AI knowledge bases",
+  "version": "2.0.0",
+  "description": "Extract documentation and web content into organized markdown files for AI knowledge bases. Supports SPA frameworks like Next.js, Nuxt, Docusaurus, and more.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -25,13 +25,6 @@
   "background": {
     "service_worker": "js/background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["js/content.js"],
-      "run_at": "document_end"
-    }
-  ],
   "icons": {
     "16": "images/icon16.png",
     "48": "images/icon48.png",

@@ -1,119 +1,90 @@
-// jszip-integration.js - Integration with JSZip library for file compression
+// jszip-integration.js - ZIP file creation and download
 
 /**
- * Create a ZIP file from markdown files
- * @param {Array} pages - Array of page objects with markdown content
- * @param {Object} options - ZIP creation options
- * @returns {Promise<Blob>} - Promise resolving to ZIP file blob
+ * Create a ZIP archive from extracted pages.
+ * @param {Array} pages - Array of { url, title, markdown, metadata }
+ * @param {Object} options
+ * @returns {Promise<Blob>}
  */
 function createMarkdownZip(pages, options = {}) {
   return new Promise((resolve, reject) => {
     if (!pages || pages.length === 0) {
-      reject(new Error('No pages to include in ZIP file'));
+      reject(new Error('No pages to include'));
       return;
     }
-    
-    // Create a new ZIP file
+
     const zip = new JSZip();
-    
-    // Add each page as a markdown file
+
     pages.forEach((page, index) => {
-      // Create filename from title or URL
       const title = page.title || `Page ${index + 1}`;
-      const filename = sanitizeFilename(`${index + 1}-${title}`) + '.md';
-      
-      // Get markdown content
-      let markdown = page.markdown;
-      
-      // Apply markdown enhancements if utils are available
+      const filename = sanitizeFilename(`${String(index + 1).padStart(3, '0')}-${title}`) + '.md';
+
+      let markdown = page.markdown || '';
+
       if (options.enhanceMarkdown && typeof enhanceMarkdown === 'function') {
         markdown = enhanceMarkdown(markdown, {
           addFrontmatter: options.addFrontmatter !== false,
           addTableOfContents: options.addTableOfContents === true,
           formatCodeBlocks: options.formatCodeBlocks !== false,
           fixRelativeLinks: options.fixRelativeLinks !== false,
-          addSectionAnchors: options.addSectionAnchors === true,
           metadata: page.metadata || {},
-          baseUrl: page.url // Pass the page URL as baseUrl for fixing relative links
+          baseUrl: page.url,
         });
       }
-      
-      // Add file to ZIP
+
       zip.file(filename, markdown);
     });
-    
-    // Create index file if requested
+
+    // Index file
     if (options.createIndex) {
-      let indexContent = '# AI Knowledge Base Index\n\n';
-      indexContent += 'This knowledge base contains the following documents:\n\n';
-      
-      pages.forEach((page, index) => {
-        const title = page.title || `Page ${index + 1}`;
-        const filename = sanitizeFilename(`${index + 1}-${title}`) + '.md';
-        indexContent += `${index + 1}. [${title}](${filename}) - [Original Source](${page.url})\n`;
+      let index = '# Knowledge Base Index\n\n';
+      index += `> Generated on ${new Date().toISOString()}\n\n`;
+      index += `| # | Title | Source |\n`;
+      index += `| --- | --- | --- |\n`;
+      pages.forEach((page, i) => {
+        const title = page.title || `Page ${i + 1}`;
+        const filename = sanitizeFilename(`${String(i + 1).padStart(3, '0')}-${title}`) + '.md';
+        index += `| ${i + 1} | [${title}](${filename}) | [Link](${page.url}) |\n`;
       });
-      
-      zip.file('00-index.md', indexContent);
+      zip.file('000-index.md', index);
     }
-    
-    // Add README file
-    const readmeContent = createReadmeContent(pages, options);
-    zip.file('README.md', readmeContent);
-    
-    // Generate ZIP file
-    zip.generateAsync({ type: 'blob' })
+
+    // README
+    zip.file('README.md', createReadme(pages));
+
+    zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
       .then(resolve)
       .catch(reject);
   });
 }
 
-/**
- * Create README content for the ZIP file
- * @param {Array} pages - Array of page objects
- * @param {Object} options - Options
- * @returns {string} - README content
- */
-function createReadmeContent(pages, options) {
-  const timestamp = new Date().toISOString();
-  const sourceUrls = pages.map(page => page.url).filter(Boolean);
-  const uniqueDomains = [...new Set(sourceUrls.map(url => {
-    try {
-      return new URL(url).hostname;
-    } catch (e) {
-      return null;
-    }
+function createReadme(pages) {
+  const domains = [...new Set(pages.map(p => {
+    try { return new URL(p.url).hostname; } catch { return null; }
   }).filter(Boolean))];
-  
-  let content = '# AI Knowledge Base\n\n';
-  content += `This knowledge base was created on ${timestamp} using the AI Knowledge Base Extractor Chrome Extension.\n\n`;
-  
-  content += '## Contents\n\n';
-  content += `This archive contains ${pages.length} markdown files extracted from ${uniqueDomains.length} domain(s).\n\n`;
-  
-  if (uniqueDomains.length > 0) {
-    content += 'Source domains:\n';
-    uniqueDomains.forEach(domain => {
-      content += `- ${domain}\n`;
-    });
-    content += '\n';
+
+  let md = '# Knowledge Base\n\n';
+  md += `This archive contains **${pages.length}** markdown files extracted from **${domains.length}** domain(s).\n\n`;
+  md += `Generated on: ${new Date().toISOString()}\n\n`;
+
+  if (domains.length > 0) {
+    md += '## Sources\n\n';
+    domains.forEach(d => { md += `- ${d}\n`; });
+    md += '\n';
   }
-  
-  content += '## Usage\n\n';
-  content += 'These markdown files can be used as a knowledge base for AI assistants like Claude, ChatGPT, or other LLMs. ';
-  content += 'You can upload them directly to AI tools that support document upload, or use them with tools like Retrieval-Augmented Generation (RAG) systems.\n\n';
-  
-  content += '## File Structure\n\n';
-  content += '- `00-index.md`: Index of all documents with links (if enabled)\n';
-  content += '- `XX-Title.md`: Individual documents extracted from web pages\n';
-  
-  return content;
+
+  md += '## Usage\n\n';
+  md += 'These files can be used as context for AI assistants (Claude, ChatGPT, etc.), ';
+  md += 'uploaded to RAG systems, or used as reference documentation.\n\n';
+  md += '## Structure\n\n';
+  md += '- `000-index.md` - Table of contents with links to all documents\n';
+  md += '- `NNN-Title.md` - Individual extracted pages\n';
+
+  return md;
 }
 
-
 /**
- * Download a blob as a file
- * @param {Blob} blob - File blob
- * @param {string} filename - Filename
+ * Trigger a blob download.
  */
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);

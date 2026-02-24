@@ -1,18 +1,20 @@
-// utils.js - Generic utility functions
+// utils.js - Shared utility functions
 
 /**
- * Sanitize filename to remove invalid characters
- * @param {string} filename - Original filename
- * @returns {string} - Sanitized filename
+ * Sanitize a string for use as a filename.
+ * Removes invalid characters and limits length.
+ * @param {string} filename
+ * @returns {string}
  */
 function sanitizeFilename(filename) {
   return filename
     .replace(/[/\\?%*:|"<>]/g, '-')
     .replace(/\s+/g, '-')
-    .substring(0, 100); // Limit length
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 120);
 }
 
-// Export for Node.js environments
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { sanitizeFilename };
 }

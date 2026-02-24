@@ -1,704 +1,472 @@
-// Improved popup.js with icon support and extraction control
+// popup.js - UI controller for the Knowledge Builder extension
 
 document.addEventListener('DOMContentLoaded', () => {
-  // DOM Elements
-  const urlCollectionRadios = document.querySelectorAll('input[name="url-collection"]');
-  const manualUrlsContainer = document.getElementById('manual-urls-container');
-  const manualUrlsTextarea = document.getElementById('manual-urls');
-  const collectedUrlsContainer = document.getElementById('collected-urls-container');
-  const urlListElement = document.getElementById('url-list');
-  const clearUrlsButton = document.getElementById('clear-urls');
-  const includePatternInput = document.getElementById('include-pattern');
-  const excludePatternInput = document.getElementById('exclude-pattern');
-  const scanPageButton = document.getElementById('scan-page');
-  const extractContentButton = document.getElementById('extract-content');
-  const downloadZipButton = document.getElementById('download-zip');
-  const statusSection = document.getElementById('status');
-  const statusText = document.getElementById('status-text');
-  const progressBar = document.getElementById('progress-bar');
-  const outputFilenameInput = document.getElementById('output-filename');
-  const timeoutInput = document.getElementById('tab-load-timeout');
-  const createIndexCheckbox = document.getElementById('create-index');
-  const includeHeadingsCheckbox = document.getElementById('include-headings');
-  const includeImagesCheckbox = document.getElementById('include-images');
-  const includeLinksCheckbox = document.getElementById('include-links');
-  const includeCodeBlocksCheckbox = document.getElementById('include-code-blocks');
-  const removeSelectorsInput = document.getElementById('remove-selectors');
-  const darkModeToggle = document.getElementById('enable-dark-mode');
-  
-  // Extraction control elements
-  const extractionControls = document.getElementById('extraction-controls');
-  const pauseExtractionButton = document.getElementById('pause-extraction');
-  const resumeExtractionButton = document.getElementById('resume-extraction');
-  const stopExtractionButton = document.getElementById('stop-extraction');
-  
-  // Section headers for collapsible sections
-  const sectionHeaders = document.querySelectorAll('.section-header');
-  
-  // State
+  // ─── DOM References ────────────────────────────────────────────
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  const els = {
+    // Tabs
+    tabs: $$('.tab'),
+    panels: $$('.panel'),
+    // Mode toggle
+    modeBtns: $$('.mode-btn'),
+    modeContents: $$('.mode-content'),
+    // Collect
+    includePattern: $('#include-pattern'),
+    excludePattern: $('#exclude-pattern'),
+    scanPageBtn: $('#scan-page'),
+    manualUrls: $('#manual-urls'),
+    addManualBtn: $('#add-manual-urls'),
+    urlListSection: $('#url-list-section'),
+    urlList: $('#url-list'),
+    urlCount: $('#url-count'),
+    clearUrlsBtn: $('#clear-urls'),
+    // Options
+    includeHeadings: $('#include-headings'),
+    includeImages: $('#include-images'),
+    includeLinks: $('#include-links'),
+    includeCodeBlocks: $('#include-code-blocks'),
+    removeSelectors: $('#remove-selectors'),
+    tabLoadTimeout: $('#tab-load-timeout'),
+    createIndex: $('#create-index'),
+    addFrontmatter: $('#add-frontmatter'),
+    addToc: $('#add-table-of-contents'),
+    // Export
+    outputFilename: $('#output-filename'),
+    extractBtn: $('#extract-content'),
+    downloadBtn: $('#download-zip'),
+    extractionControls: $('#extraction-controls'),
+    pauseBtn: $('#pause-btn'),
+    resumeBtn: $('#resume-btn'),
+    stopBtn: $('#stop-btn'),
+    // Status
+    statusBar: $('#status-bar'),
+    progressFill: $('#progress-fill'),
+    statusText: $('#status-text'),
+    // Theme
+    themeToggle: $('#theme-toggle'),
+  };
+
+  // ─── State ─────────────────────────────────────────────────────
   let collectedUrls = [];
   let processedPages = [];
-  let currentUrlIndex = 0;
-  let extractionPaused = false;
   let extractionActive = false;
-  let extractionOptions = {};
-  let resumePromptShown = false;
-  
-  // Initialize UI and collapsible sections
-  initializeUI();
-  setupCollapsibleSections();
-  setupExtractionControlListeners();
-  initializeDarkMode();
-  
-  /**
-   * Initialize collapsible sections
-   */
-  function setupCollapsibleSections() {
-    sectionHeaders.forEach(header => {
-      // Make sure sections start expanded by default
-      const section = header.closest('.section');
-      const content = section.querySelector('.section-content');
-      const chevron = header.querySelector('.icon-chevron');
-      
-      // Ensure content is visible initially
-      content.classList.remove('hidden');
-      header.classList.remove('collapsed');
-      chevron.style.transform = 'rotate(0deg)';
-      
-      // Add click listener for toggling
-      header.addEventListener('click', () => {
-        // Toggle collapse state
-        if (content.classList.contains('hidden')) {
-          // Expand
-          content.classList.remove('hidden');
-          header.classList.remove('collapsed');
-          chevron.style.transform = 'rotate(0deg)';
-        } else {
-          // Collapse
-          content.classList.add('hidden');
-          header.classList.add('collapsed');
-          chevron.style.transform = 'rotate(-90deg)';
-        }
-      });
+  let extractionPaused = false;
+  let currentUrlIndex = 0;
+
+  // ─── Tab Navigation ────────────────────────────────────────────
+  els.tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      els.tabs.forEach(t => t.classList.toggle('tab--active', t === tab));
+      els.panels.forEach(p => p.classList.toggle('panel--active', p.id === `panel-${target}`));
     });
-  }
-  
-  /**
-   * Setup event listeners for extraction control buttons
-   */
-  function setupExtractionControlListeners() {
-    pauseExtractionButton.addEventListener('click', handlePauseExtraction);
-    resumeExtractionButton.addEventListener('click', handleResumeExtraction);
-    stopExtractionButton.addEventListener('click', handleStopExtraction);
-  }
-  
-  // Event Listeners
-  urlCollectionRadios.forEach(radio => {
-    radio.addEventListener('change', handleUrlCollectionMethodChange);
   });
-  
-  scanPageButton.addEventListener('click', handleScanPage);
-  extractContentButton.addEventListener('click', handleExtractContent);
-  downloadZipButton.addEventListener('click', handleDownloadZip);
-  clearUrlsButton.addEventListener('click', handleClearUrls);
-  timeoutInput.addEventListener('change', handleTimeoutChange);
-  darkModeToggle.addEventListener('change', handleDarkModeToggle);
-  
-  /**
-   * Initialize UI state
-   */
-  function initializeUI() {
-    // Get current state from background script
-    chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
-      if (response) {
-        collectedUrls = response.urls || [];
-        processedPages = response.pages || [];
-        
-        // Check extraction status
-        if (response.extractionState) {
-          extractionActive = response.extractionState.active;
-          extractionPaused = response.extractionState.paused;
-          currentUrlIndex = response.extractionState.currentIndex;
 
-          // Update UI based on extraction state
-          if (extractionActive) {
-            extractionControls.classList.remove('hidden');
+  // ─── Mode Toggle (Scan / Manual) ──────────────────────────────
+  els.modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      els.modeBtns.forEach(b => b.classList.toggle('mode-btn--active', b === btn));
+      els.modeContents.forEach(c => c.classList.toggle('mode-content--active', c.id === `mode-${mode}`));
+    });
+  });
 
-            if (extractionPaused) {
-              pauseExtractionButton.classList.add('hidden');
-              resumeExtractionButton.classList.remove('hidden');
+  // ─── Theme Toggle ─────────────────────────────────────────────
+  initTheme();
+  els.themeToggle.addEventListener('click', () => {
+    const isLight = document.body.classList.toggle('light-theme');
+    chrome.storage.local.set({ theme: isLight ? 'light' : 'dark' });
+  });
+
+  function initTheme() {
+    chrome.storage.local.get('theme', (data) => {
+      if (data.theme === 'light') {
+        document.body.classList.add('light-theme');
+      } else if (data.theme === undefined) {
+        // Default to dark
+        chrome.storage.local.set({ theme: 'dark' });
+      }
+    });
+  }
+
+  // ─── Initialize from Background State ─────────────────────────
+  chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
+    if (!response) return;
+    collectedUrls = response.urls || [];
+    processedPages = response.pages || [];
+
+    if (response.extractionState) {
+      extractionActive = response.extractionState.active;
+      extractionPaused = response.extractionState.paused;
+      currentUrlIndex = response.extractionState.currentIndex;
+
+      if (extractionActive) {
+        showExtractionUI();
+        const progress = collectedUrls.length
+          ? Math.round((currentUrlIndex / collectedUrls.length) * 100)
+          : 0;
+        setProgress(progress);
+
+        if (extractionPaused) {
+          els.pauseBtn.classList.add('hidden');
+          els.resumeBtn.classList.remove('hidden');
+          setStatus(`Paused at ${currentUrlIndex}/${collectedUrls.length}`);
+
+          if (currentUrlIndex < collectedUrls.length) {
+            if (confirm(`Resume extraction from page ${currentUrlIndex + 1} of ${collectedUrls.length}?`)) {
+              chrome.runtime.sendMessage({ action: 'resumeExtraction' });
             } else {
-              pauseExtractionButton.classList.remove('hidden');
-              resumeExtractionButton.classList.add('hidden');
-            }
-
-            // Show progress
-            const progress = Math.round((currentUrlIndex / collectedUrls.length) * 100);
-            showProgressBar(progress);
-
-            if (extractionPaused) {
-              updateStatus(`Paused at ${currentUrlIndex}/${collectedUrls.length} URLs`);
-            }
-
-            if (!resumePromptShown && extractionPaused && currentUrlIndex < collectedUrls.length) {
-              resumePromptShown = true;
-              if (confirm(`Resume previous extraction from URL ${currentUrlIndex + 1} of ${collectedUrls.length}?`)) {
-                handleResumeExtraction();
-              } else {
-                chrome.runtime.sendMessage({ action: 'resetState' }, () => {
-                  collectedUrls = [];
-                  processedPages = [];
-                  currentUrlIndex = 0;
-                  extractionActive = false;
-                  extractionPaused = false;
-                  renderUrlList();
-                  showProgressBar(0);
-                });
-              }
-            }
-          }
-        }
-        
-        // Update UI based on state
-        if (collectedUrls.length > 0) {
-          extractContentButton.disabled = false;
-          updateStatus(`${collectedUrls.length} URLs collected and ready for extraction`);
-          
-          // Render the collected URLs list
-          renderUrlList();
-        }
-        
-        if (processedPages.length > 0) {
-          downloadZipButton.disabled = false;
-          updateStatus(`${processedPages.length} pages processed and ready for download`);
-        }
-      }
-    });
-    
-    // Listen for state updates from background script
-    chrome.runtime.onMessage.addListener((message) => {
-      if (message.action === 'stateUpdate') {
-        const { collectedData, extractionState } = message.data;
-        
-        // Update local state
-        collectedUrls = collectedData.urls || [];
-        processedPages = collectedData.pages || [];
-        
-        // Update extraction state
-        extractionActive = extractionState.active;
-        extractionPaused = extractionState.paused;
-        currentUrlIndex = extractionState.currentIndex;
-        
-        // Update UI
-        if (collectedUrls.length > 0) {
-          renderUrlList();
-        }
-        
-        // Update controls
-        if (extractionActive) {
-          extractionControls.classList.remove('hidden');
-          
-          if (extractionPaused) {
-            pauseExtractionButton.classList.add('hidden');
-            resumeExtractionButton.classList.remove('hidden');
-          } else {
-            pauseExtractionButton.classList.remove('hidden');
-            resumeExtractionButton.classList.add('hidden');
-          }
-          
-          // Show progress
-          const progress = Math.round((currentUrlIndex / extractionState.totalUrls) * 100);
-          showProgressBar(progress);
-          updateStatus(`Processing ${currentUrlIndex}/${extractionState.totalUrls} URLs (${progress}%)`);
-        } else {
-          // Hide controls if extraction is complete
-          if (collectedData.status === 'completed' || collectedData.status === 'stopped') {
-            extractionControls.classList.add('hidden');
-            
-            if (processedPages.length > 0) {
-              downloadZipButton.disabled = false;
-              updateStatus(`${processedPages.length} pages processed and ready for download`);
+              chrome.runtime.sendMessage({ action: 'resetState' }, () => {
+                collectedUrls = [];
+                processedPages = [];
+                extractionActive = false;
+                extractionPaused = false;
+                renderUrlList();
+                hideExtractionUI();
+              });
             }
           }
         }
       }
-    });
+    }
 
-    // Load current timeout value
-    chrome.runtime.sendMessage({ action: 'getTimeout' }, (res) => {
-      if (res && res.timeout) {
-        timeoutInput.value = res.timeout;
-      }
-    });
-
-    // Load saved selectors to remove
-    chrome.storage.local.get('removeSelectors', (res) => {
-      if (res.removeSelectors) {
-        removeSelectorsInput.value = res.removeSelectors;
-      }
-    });
-  }
-  
-  /**
-   * Render the list of collected URLs
-   */
-  function renderUrlList() {
     if (collectedUrls.length > 0) {
-      // Clear the current list
-      urlListElement.innerHTML = '';
-      
-      // Show the container
-      collectedUrlsContainer.classList.remove('hidden');
-      
-      // Add each URL to the list
-      collectedUrls.forEach((urlItem, index) => {
-        const urlElement = document.createElement('div');
-        urlElement.className = 'url-item';
-
-        const urlText = document.createElement('div');
-        urlText.className = 'url-text';
-        urlText.title = urlItem.url; // Show full URL on hover
-        urlText.textContent = urlItem.text || getUrlDomain(urlItem.url);
-
-        const buttonContainer = document.createElement('div');
-        buttonContainer.className = 'url-buttons';
-
-        const previewed = processedPages.findIndex(p => p.url === urlItem.url);
-        if (previewed !== -1) {
-          const previewButton = document.createElement('button');
-          previewButton.className = 'url-preview';
-          previewButton.textContent = 'Preview';
-          previewButton.title = 'Preview extracted markdown';
-          previewButton.dataset.index = previewed;
-          previewButton.addEventListener('click', handlePreviewPage);
-          buttonContainer.appendChild(previewButton);
-        }
-
-        const removeButton = document.createElement('button');
-        removeButton.className = 'url-remove';
-        removeButton.innerHTML = '&times;'; // × symbol
-        removeButton.title = 'Remove this URL';
-        removeButton.dataset.index = index;
-        removeButton.addEventListener('click', handleRemoveUrl);
-
-        buttonContainer.appendChild(removeButton);
-
-        urlElement.appendChild(urlText);
-        urlElement.appendChild(buttonContainer);
-        urlListElement.appendChild(urlElement);
-      });
-    } else {
-      // Hide the container if no URLs
-      collectedUrlsContainer.classList.add('hidden');
-    }
-
-    // Enable/disable extract button based on list state
-    extractContentButton.disabled = collectedUrls.length === 0;
-  }
-  
-  /**
-   * Handle removing a URL from the collection
-   * @param {Event} event - Click event
-   */
-  function handleRemoveUrl(event) {
-    const index = parseInt(event.currentTarget.dataset.index, 10);
-    
-    if (!isNaN(index) && index >= 0 && index < collectedUrls.length) {
-      // Remove the URL from the array
-      const removedUrl = collectedUrls.splice(index, 1)[0];
-      
-      // Update the UI
+      els.extractBtn.disabled = false;
       renderUrlList();
-      
-      // Update the status
-      updateStatus(`Removed "${removedUrl.text || getUrlDomain(removedUrl.url)}" from scan list`);
-      
-      // Update the background script
-      chrome.runtime.sendMessage({
-        action: 'setUrls',
-        urls: collectedUrls
-      });
-      
-      // Update extract button state
-      extractContentButton.disabled = collectedUrls.length === 0;
+      setStatus(`${collectedUrls.length} URLs ready`);
     }
-  }
 
-/**
-   * Handle preview button click
-   */
-  function handlePreviewPage(event) {
-    const index = parseInt(event.currentTarget.dataset.index, 10);
-    if (!isNaN(index)) {
-      const url = chrome.runtime.getURL(`viewer.html?id=${index}`);
-      chrome.tabs.create({ url });
+    if (processedPages.length > 0) {
+      els.downloadBtn.disabled = false;
+      setStatus(`${processedPages.length} pages ready for download`);
     }
-  }
+  });
 
-  /**
-   * Handle clearing all collected URLs
-   */
-  function handleClearUrls() {
-    collectedUrls = [];
+  // Load saved settings
+  chrome.runtime.sendMessage({ action: 'getTimeout' }, (res) => {
+    if (res && res.timeout) els.tabLoadTimeout.value = res.timeout;
+  });
+  chrome.storage.local.get('removeSelectors', (res) => {
+    if (res.removeSelectors) els.removeSelectors.value = res.removeSelectors;
+  });
+
+  // ─── Listen for Background State Updates ──────────────────────
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.action !== 'stateUpdate') return;
+    const { collectedData, extractionState } = message.data;
+
+    collectedUrls = collectedData.urls || [];
+    processedPages = collectedData.pages || [];
+    extractionActive = extractionState.active;
+    extractionPaused = extractionState.paused;
+    currentUrlIndex = extractionState.currentIndex;
+
     renderUrlList();
 
-    chrome.runtime.sendMessage({
-      action: 'setUrls',
-      urls: []
-    });
+    if (extractionActive) {
+      showExtractionUI();
+      els.pauseBtn.classList.toggle('hidden', extractionPaused);
+      els.resumeBtn.classList.toggle('hidden', !extractionPaused);
 
-    updateStatus('URL list cleared');
-  }
-  function handleUrlCollectionMethodChange() {
-    const selectedValue = document.querySelector('input[name="url-collection"]:checked').value;
-    
-    if (selectedValue === 'selected') {
-      manualUrlsContainer.classList.remove('hidden');
-    } else {
-      manualUrlsContainer.classList.add('hidden');
-    }
-  }
-  
-  /**
-   * Handle scan page button click
-   */
-  function handleScanPage() {
-    const selectedMethod = document.querySelector('input[name="url-collection"]:checked').value;
-    
-    if (selectedMethod === 'all') {
-      // Get all links from current page
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const currentTab = tabs[0];
-        
-        updateStatus('Scanning page for links...');
-        showProgressBar(10);
-        
-        // Get filter options
-        const options = {
-          includePattern: includePatternInput.value.trim(),
-          excludePattern: excludePatternInput.value.trim()
-        };
-        
-      // Ensure content script is injected before sending message
-      try {
-        chrome.scripting.executeScript({
-          target: { tabId: currentTab.id },
-          files: ['js/content.js']
-        }).then(() => {
-          // Content script is now injected, send message
-          updateStatus('Content script injected, collecting links...');
-          
-          // Send message to content script to collect links
-          chrome.tabs.sendMessage(
-            currentTab.id,
-            { action: 'collectLinks', options },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                console.error('Runtime error:', chrome.runtime.lastError);
-                updateStatus('Error: ' + chrome.runtime.lastError.message);
-                return;
-              }
-              
-              if (response && response.error) {
-                updateStatus('Error: ' + response.error);
-              } else if (response && response.links) {
-                collectedUrls = response.links;
-                
-                // Store URLs in background script
-                chrome.runtime.sendMessage({
-                  action: 'setUrls',
-                  urls: collectedUrls
-                });
-                
-                showProgressBar(100);
-                updateStatus(`Collected ${collectedUrls.length} links from the page`);
-                
-                // Enable extract button
-                extractContentButton.disabled = false;
-                
-                // Render the URL list
-                renderUrlList();
-              } else {
-                updateStatus('Error: Could not collect links from the page');
-              }
-            }
-          );
-        }).catch(error => {
-          console.error('Error injecting content script:', error);
-          updateStatus('Error injecting content script: ' + error.message);
-        });
-      } catch (error) {
-        console.error('Error sending message:', error);
-        updateStatus('Error: ' + error.message);
+      const progress = extractionState.totalUrls
+        ? Math.round((currentUrlIndex / extractionState.totalUrls) * 100)
+        : 0;
+      setProgress(progress);
+      setStatus(`Processing ${currentUrlIndex}/${extractionState.totalUrls} (${progress}%)`);
+    } else if (collectedData.status === 'completed' || collectedData.status === 'stopped') {
+      hideExtractionUI();
+      if (processedPages.length > 0) {
+        els.downloadBtn.disabled = false;
+        // Switch to export tab
+        switchTab('export');
+
+        const errCount = (extractionState.errors || []).length;
+        let msg = `${processedPages.length} pages extracted`;
+        if (errCount > 0) msg += ` (${errCount} errors)`;
+        setStatus(msg);
+        setProgress(100);
       }
+    }
+  });
+
+  // ─── Scan Page ────────────────────────────────────────────────
+  els.scanPageBtn.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (!tab) return;
+
+      setStatus('Scanning page for links...');
+      setProgress(10);
+      els.scanPageBtn.classList.add('btn--loading');
+
+      const options = {
+        includePattern: els.includePattern.value.trim(),
+        excludePattern: els.excludePattern.value.trim(),
+      };
+
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['js/content.js'],
+      }).then(() => {
+        chrome.tabs.sendMessage(tab.id, { action: 'collectLinks', options }, (response) => {
+          els.scanPageBtn.classList.remove('btn--loading');
+
+          if (chrome.runtime.lastError) {
+            setStatus('Error: ' + chrome.runtime.lastError.message);
+            return;
+          }
+          if (response && response.error) {
+            setStatus('Error: ' + response.error);
+            return;
+          }
+          if (response && response.links) {
+            collectedUrls = response.links;
+            chrome.runtime.sendMessage({ action: 'setUrls', urls: collectedUrls });
+            setProgress(100);
+            setStatus(`Found ${collectedUrls.length} links`);
+            els.extractBtn.disabled = false;
+            renderUrlList();
+          } else {
+            setStatus('No links found on this page');
+          }
+        });
+      }).catch(err => {
+        els.scanPageBtn.classList.remove('btn--loading');
+        setStatus('Error: ' + err.message);
       });
-    } else {
-      // Use manually entered URLs
-      const manualUrls = manualUrlsTextarea.value.trim().split('\n')
-        .filter(url => url.trim() !== '')
-        .map(url => {
-          return {
-            url: url.trim(),
-            text: url.trim()
-          };
-        });
-      
-      if (manualUrls.length > 0) {
-        collectedUrls = manualUrls;
-        
-        // Store URLs in background script
-        chrome.runtime.sendMessage({
-          action: 'setUrls',
-          urls: collectedUrls
-        });
-        
-        updateStatus(`Added ${collectedUrls.length} URLs manually`);
-        
-        // Enable extract button
-        extractContentButton.disabled = false;
-        
-        // Render the URL list
-        renderUrlList();
-      } else {
-        updateStatus('Error: No URLs entered');
-      }
-    }
-  }
-  
-  /**
-   * Handle extract content button click
-   */
-  function handleExtractContent() {
-    if (collectedUrls.length === 0) {
-      updateStatus('No URLs to process');
+    });
+  });
+
+  // ─── Add Manual URLs ──────────────────────────────────────────
+  els.addManualBtn.addEventListener('click', () => {
+    const urls = els.manualUrls.value.trim().split('\n')
+      .map(u => u.trim())
+      .filter(u => u && (u.startsWith('http://') || u.startsWith('https://')));
+
+    if (urls.length === 0) {
+      setStatus('Enter valid URLs (must start with http:// or https://)');
       return;
     }
 
-    // Get content options
+    const newLinks = urls.map(url => ({ url, text: url }));
+
+    // Merge with existing, dedup
+    const existing = new Set(collectedUrls.map(u => u.url));
+    newLinks.forEach(link => {
+      if (!existing.has(link.url)) {
+        collectedUrls.push(link);
+        existing.add(link.url);
+      }
+    });
+
+    chrome.runtime.sendMessage({ action: 'setUrls', urls: collectedUrls });
+    setStatus(`${collectedUrls.length} URLs total`);
+    els.extractBtn.disabled = false;
+    renderUrlList();
+    els.manualUrls.value = '';
+  });
+
+  // ─── Clear URLs ───────────────────────────────────────────────
+  els.clearUrlsBtn.addEventListener('click', () => {
+    collectedUrls = [];
+    chrome.runtime.sendMessage({ action: 'setUrls', urls: [] });
+    renderUrlList();
+    els.extractBtn.disabled = true;
+    setStatus('URLs cleared');
+  });
+
+  // ─── Extract Content ──────────────────────────────────────────
+  els.extractBtn.addEventListener('click', () => {
+    if (collectedUrls.length === 0) return;
+
     const options = {
-      includeHeadings: includeHeadingsCheckbox.checked,
-      includeImages: includeImagesCheckbox.checked,
-      includeLinks: includeLinksCheckbox.checked,
-      includeCodeBlocks: includeCodeBlocksCheckbox.checked,
-      selectorsToRemove: removeSelectorsInput.value
-        .split(',')
-        .map(s => s.trim())
-        .filter(s => s.length > 0)
+      includeHeadings: els.includeHeadings.checked,
+      includeImages: els.includeImages.checked,
+      includeLinks: els.includeLinks.checked,
+      includeCodeBlocks: els.includeCodeBlocks.checked,
+      selectorsToRemove: els.removeSelectors.value.split(',').map(s => s.trim()).filter(Boolean),
     };
 
-    // Persist selectors across sessions
-    chrome.storage.local.set({ removeSelectors: removeSelectorsInput.value.trim() });
-    
-    // Show extraction controls
-    extractionControls.classList.remove('hidden');
-    pauseExtractionButton.classList.remove('hidden');
-    resumeExtractionButton.classList.add('hidden');
-    
-    // Set UI state
-    extractionActive = true;
-    extractionPaused = false;
-    
-    updateStatus(`Starting extraction of ${collectedUrls.length} pages...`);
-    showProgressBar(0);
-    
-    // Send message to background script to start extraction
-    chrome.runtime.sendMessage({
-      action: 'startExtraction',
-      options: options
-    }, (response) => {
-      if (!response.success) {
-        updateStatus(`Error: ${response.message || 'Unknown error'}`);
-        extractionControls.classList.add('hidden');
-        extractionActive = false;
+    chrome.storage.local.set({ removeSelectors: els.removeSelectors.value.trim() });
+
+    // Switch to export tab to show progress
+    switchTab('export');
+    showExtractionUI();
+    setStatus(`Starting extraction of ${collectedUrls.length} pages...`);
+    setProgress(0);
+
+    chrome.runtime.sendMessage({ action: 'startExtraction', options }, (response) => {
+      if (!response || !response.success) {
+        setStatus(`Error: ${response?.message || 'Unknown error'}`);
+        hideExtractionUI();
       }
     });
-  }
-  
-  /**
-   * Handle pause extraction button click
-   */
-  function handlePauseExtraction() {
-    chrome.runtime.sendMessage({
-      action: 'pauseExtraction'
-    }, (response) => {
-      if (response.success) {
-        extractionPaused = true;
-        
-        // Update UI
-        pauseExtractionButton.classList.add('hidden');
-        resumeExtractionButton.classList.remove('hidden');
-        
-        updateStatus('Extraction paused');
-      } else {
-        updateStatus(`Error: ${response.message || 'Could not pause extraction'}`);
+  });
+
+  // ─── Extraction Controls ──────────────────────────────────────
+  els.pauseBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'pauseExtraction' }, (res) => {
+      if (res && res.success) {
+        els.pauseBtn.classList.add('hidden');
+        els.resumeBtn.classList.remove('hidden');
+        setStatus('Paused');
       }
     });
-  }
-  
-  /**
-   * Handle resume extraction button click
-   */
-  function handleResumeExtraction() {
-    chrome.runtime.sendMessage({
-      action: 'resumeExtraction'
-    }, (response) => {
-      if (response.success) {
-        extractionPaused = false;
-        
-        // Update UI
-        pauseExtractionButton.classList.remove('hidden');
-        resumeExtractionButton.classList.add('hidden');
-        
-        updateStatus('Resuming extraction...');
-      } else {
-        updateStatus(`Error: ${response.message || 'Could not resume extraction'}`);
+  });
+
+  els.resumeBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'resumeExtraction' }, (res) => {
+      if (res && res.success) {
+        els.pauseBtn.classList.remove('hidden');
+        els.resumeBtn.classList.add('hidden');
+        setStatus('Resuming...');
       }
     });
-  }
-  
-  /**
-   * Handle stop extraction button click
-   */
-  function handleStopExtraction() {
-    chrome.runtime.sendMessage({
-      action: 'stopExtraction'
-    }, (response) => {
-      if (response.success) {
-        extractionActive = false;
-        extractionPaused = false;
-        
-        // Hide extraction controls
-        extractionControls.classList.add('hidden');
-        
-        updateStatus('Extraction stopped');
-        
-        // Enable download button if we have any processed pages
+  });
+
+  els.stopBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'stopExtraction' }, (res) => {
+      if (res && res.success) {
+        hideExtractionUI();
+        setStatus('Extraction stopped');
         if (processedPages.length > 0) {
-          downloadZipButton.disabled = false;
+          els.downloadBtn.disabled = false;
         }
-      } else {
-        updateStatus(`Error: ${response.message || 'Could not stop extraction'}`);
       }
     });
-  }
-  
-  /**
-   * Handle download zip button click
-   */
-  function handleDownloadZip() {
+  });
+
+  // ─── Download ZIP ─────────────────────────────────────────────
+  els.downloadBtn.addEventListener('click', () => {
     if (processedPages.length === 0) {
-      updateStatus('No pages to download');
+      setStatus('No pages to download');
       return;
     }
-    
-    updateStatus('Creating ZIP file...');
-    showProgressBar(50);
-    
-    // Get output filename
-    const outputFilename = outputFilenameInput.value.trim() || 'extracted-content';
-    
-    // Get output options
+
+    setStatus('Creating ZIP...');
+    setProgress(50);
+    els.downloadBtn.classList.add('btn--loading');
+
+    const filename = els.outputFilename.value.trim() || 'knowledge-base';
     const options = {
-      createIndex: createIndexCheckbox.checked,
-      addFrontmatter: document.getElementById('add-frontmatter').checked,
-      addTableOfContents: document.getElementById('add-table-of-contents').checked,
+      createIndex: els.createIndex.checked,
+      addFrontmatter: els.addFrontmatter.checked,
+      addTableOfContents: els.addToc.checked,
       formatCodeBlocks: true,
       fixRelativeLinks: true,
-      enhanceMarkdown: true
+      enhanceMarkdown: true,
     };
-    
-    // Create ZIP file using the integration module
+
     createMarkdownZip(processedPages, options)
-      .then((blob) => {
-        // Download the ZIP file
-        downloadBlob(blob, `${outputFilename}.zip`);
+      .then(blob => {
+        downloadBlob(blob, `${filename}.zip`);
+        setProgress(100);
+        setStatus(`Downloaded ${processedPages.length} pages`);
+        els.downloadBtn.classList.remove('btn--loading');
 
-        showProgressBar(100);
-        updateStatus(`Downloaded ${processedPages.length} pages as ${outputFilename}.zip`);
-
-        // Clear stored pages after download
         chrome.runtime.sendMessage({ action: 'clearPages' });
         processedPages = [];
-        downloadZipButton.disabled = true;
+        els.downloadBtn.disabled = true;
         renderUrlList();
       })
-      .catch((error) => {
-        console.error('Error creating ZIP file', error);
-        updateStatus('Error creating ZIP file');
+      .catch(err => {
+        console.error('ZIP error:', err);
+        setStatus('Error creating ZIP');
+        els.downloadBtn.classList.remove('btn--loading');
       });
-  }
+  });
 
-  /**
-   * Handle timeout input change
-   */
-  function handleTimeoutChange() {
-    const value = parseInt(timeoutInput.value, 10);
-    if (!isNaN(value) && value > 0) {
-      chrome.runtime.sendMessage({ action: 'setTimeout', timeout: value });
-    } else {
-      updateStatus('Invalid timeout value');
+  // ─── Timeout Change ───────────────────────────────────────────
+  els.tabLoadTimeout.addEventListener('change', () => {
+    const val = parseInt(els.tabLoadTimeout.value, 10);
+    if (!isNaN(val) && val >= 3000) {
+      chrome.runtime.sendMessage({ action: 'setTimeout', timeout: val });
     }
-  }
+  });
 
-  /**
-   * Initialize dark mode based on stored preference
-   */
-  function initializeDarkMode() {
-    chrome.storage.local.get('darkModeEnabled', (data) => {
-      let enabled = data.darkModeEnabled;
-      if (enabled === undefined) {
-        enabled = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        chrome.storage.local.set({ darkModeEnabled: enabled });
+  // ─── URL List Rendering ───────────────────────────────────────
+  function renderUrlList() {
+    if (collectedUrls.length === 0) {
+      els.urlListSection.classList.add('hidden');
+      return;
+    }
+
+    els.urlListSection.classList.remove('hidden');
+    els.urlCount.textContent = collectedUrls.length;
+    els.urlList.innerHTML = '';
+
+    collectedUrls.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'url-item';
+
+      const text = document.createElement('span');
+      text.className = 'url-item__text';
+      text.textContent = item.text || item.url;
+      text.title = item.url;
+
+      const actions = document.createElement('div');
+      actions.className = 'url-item__actions';
+
+      // Preview button if already extracted
+      const pageIdx = processedPages.findIndex(p => p.url === item.url);
+      if (pageIdx !== -1) {
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'url-item__btn url-item__btn--preview';
+        previewBtn.textContent = 'preview';
+        previewBtn.addEventListener('click', () => {
+          chrome.tabs.create({ url: chrome.runtime.getURL(`viewer.html?id=${pageIdx}`) });
+        });
+        actions.appendChild(previewBtn);
       }
-      darkModeToggle.checked = !!enabled;
-      if (enabled) {
-        document.body.classList.add('dark-mode');
-      }
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'url-item__btn url-item__btn--remove';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', () => {
+        collectedUrls.splice(index, 1);
+        chrome.runtime.sendMessage({ action: 'setUrls', urls: collectedUrls });
+        renderUrlList();
+        els.extractBtn.disabled = collectedUrls.length === 0;
+      });
+      actions.appendChild(removeBtn);
+
+      row.appendChild(text);
+      row.appendChild(actions);
+      els.urlList.appendChild(row);
     });
   }
 
-  /**
-   * Handle dark mode toggle changes
-   */
-  function handleDarkModeToggle() {
-    const enabled = darkModeToggle.checked;
-    if (enabled) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
-    }
-    chrome.storage.local.set({ darkModeEnabled: enabled });
+  // ─── Helpers ──────────────────────────────────────────────────
+  function setStatus(msg) {
+    els.statusBar.classList.remove('hidden');
+    els.statusText.textContent = msg;
   }
-  
-  /**
-   * Update status text and show status section
-   * @param {string} message - Status message
-   */
-  function updateStatus(message) {
-    statusSection.classList.remove('hidden');
-    statusText.textContent = message;
+
+  function setProgress(pct) {
+    els.progressFill.style.width = `${pct}%`;
   }
-  
-  /**
-   * Show progress bar with specified percentage
-   * @param {number} percent - Progress percentage (0-100)
-   */
-  function showProgressBar(percent) {
-    progressBar.style.width = `${percent}%`;
+
+  function showExtractionUI() {
+    extractionActive = true;
+    els.extractionControls.classList.remove('hidden');
+    els.pauseBtn.classList.remove('hidden');
+    els.resumeBtn.classList.add('hidden');
+    els.extractBtn.disabled = true;
+    document.body.classList.add('extracting');
   }
-  
-  /**
-   * Extract domain name from URL for display purposes
-   * @param {string} url - URL to extract domain from
-   * @returns {string} - Domain name
-   */
-  function getUrlDomain(url) {
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname;
-    } catch (e) {
-      return url;
-    }
+
+  function hideExtractionUI() {
+    extractionActive = false;
+    els.extractionControls.classList.add('hidden');
+    els.extractBtn.disabled = collectedUrls.length === 0;
+    document.body.classList.remove('extracting');
   }
-  
+
+  function switchTab(tabName) {
+    els.tabs.forEach(t => t.classList.toggle('tab--active', t.dataset.tab === tabName));
+    els.panels.forEach(p => p.classList.toggle('panel--active', p.id === `panel-${tabName}`));
+  }
 });
