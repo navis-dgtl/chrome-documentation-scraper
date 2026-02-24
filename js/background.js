@@ -190,12 +190,35 @@ function processNextUrl() {
   });
 }
 
+// Ensure content script is loaded, injecting only if needed
+function ensureContentScript(tabId) {
+  return new Promise((resolve) => {
+    // First try pinging existing content script
+    chrome.tabs.sendMessage(tabId, { action: 'ping' }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.alive) {
+        // Not loaded yet, inject it
+        chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['js/content.js'],
+        }).then(() => resolve(true))
+          .catch((err) => {
+            console.error('Failed to inject content script:', err);
+            resolve(false);
+          });
+      } else {
+        resolve(true);
+      }
+    });
+  });
+}
+
 function extractFromTab(tabId, url) {
-  // First inject the content script
-  chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['js/content.js'],
-  }).then(() => {
+  // Ensure content script is loaded (injects only if not already present)
+  ensureContentScript(tabId).then((ok) => {
+    if (!ok) {
+      handleExtractionError(url, 'Could not inject content script', tabId);
+      return;
+    }
     // Send extraction message
     chrome.tabs.sendMessage(
       tabId,

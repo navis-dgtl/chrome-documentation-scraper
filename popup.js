@@ -206,10 +206,20 @@ document.addEventListener('DOMContentLoaded', () => {
         excludePattern: els.excludePattern.value.trim(),
       };
 
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['js/content.js'],
-      }).then(() => {
+      // Ping first to check if content script is already loaded
+      function injectAndScan() {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['js/content.js'],
+        }).then(() => {
+          sendScanMessage();
+        }).catch(err => {
+          els.scanPageBtn.classList.remove('btn--loading');
+          setStatus('Error: ' + err.message);
+        });
+      }
+
+      function sendScanMessage() {
         chrome.tabs.sendMessage(tab.id, { action: 'collectLinks', options }, (response) => {
           els.scanPageBtn.classList.remove('btn--loading');
 
@@ -232,9 +242,17 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('No links found on this page');
           }
         });
-      }).catch(err => {
-        els.scanPageBtn.classList.remove('btn--loading');
-        setStatus('Error: ' + err.message);
+      }
+
+      // Try pinging existing content script first
+      chrome.tabs.sendMessage(tab.id, { action: 'ping' }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.alive) {
+          // Not loaded, inject it
+          injectAndScan();
+        } else {
+          // Already loaded, just send the scan message
+          sendScanMessage();
+        }
       });
     });
   });

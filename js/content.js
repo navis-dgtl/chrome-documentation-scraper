@@ -1,12 +1,14 @@
 // content.js - Content script for extracting links and content from web pages
 // Handles SPA frameworks (Next.js, Nuxt, React Router, etc.) with dynamic content detection
 
-(() => {
-  // Guard against double-injection
-  if (window.__navisContentScriptLoaded) return;
-  window.__navisContentScriptLoaded = true;
+// Top-level guard using var (safe to re-declare unlike const/let)
+// This prevents errors when the script is injected multiple times
+var __navisGuard = window.__navisContentScriptLoaded;
+if (!__navisGuard) {
+window.__navisContentScriptLoaded = true;
 
-  const DEBUG = false;
+(() => {
+  var DEBUG = false;
   function debugLog(...args) {
     if (DEBUG) console.log('[Navis]', ...args);
   }
@@ -719,3 +721,4 @@
 
   debugLog('Navis content script loaded');
 })();
+} // end guard
